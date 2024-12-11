@@ -1,0 +1,35 @@
+[Buildset]
+BuildItems=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x00)
+
+[Launch]
+Launch Configurations=Launch Configuration 0
+
+[Launch][Launch Configuration 0]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=kernel
+Type=Native Application
+
+[Launch][Launch Configuration 0][Data]
+Arguments=
+Debugger Shell=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x00)
+Dependency Action=Nothing
+Display Demangle Names=true
+Display Static Members=false
+EnvironmentGroup=
+Executable=file:///mnt/c/fastsystem/source/kernel/mk.sh
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+GDB Path=
+Kill Before Executing Again=4194304
+Project Target=
+Remote GDB Config Script=file:///mnt/c/fastsystem/source/kernel/gdb-config.kdevelop
+Remote GDB Run Script=file:///mnt/c/fastsystem/source/loader/initdebug.gdbc
+Remote GDB Shell Script=file:///mnt/c/fastsystem/source/kernel/mkdebug.sh
+Start With=GdbConsole
+Use External Terminal=false
+Working Directory=file:///mnt/c/fastsystem/source/kernel
+isExecutable=true
+
+[Project]
+VersionControlSupport=
