@@ -1,0 +1,4 @@
+set confirm off
+target remote 127.0.0.1:1234
+add-symbol-file ../loader/loader.elf 0xa000
+add-symbol-file ../kernel/fskrnl.elf 0xc000000
