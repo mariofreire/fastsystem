@@ -1,0 +1,52 @@
+
+int disk_detect_device_type(unsigned char primary, unsigned char master)
+{
+	if (primary)
+	{
+		if (master)
+		{
+			print("Primary IDE Master: ");
+		}
+		else
+		{
+			print("Primary IDE Slave: ");
+		}
+	}
+	else
+	{
+		if (master)
+		{
+			print("Secondary IDE Master: ");
+		}
+		else
+		{
+			print("Secondary IDE Slave: ");
+		}
+	}
+	if (primary)
+	{
+		m_bus = ATA_PRIMARY_BUS;
+		m_control = ATA_PRIMARY_CONTROL;
+	}
+	else
+	{
+		m_bus = ATA_SECONDARY_BUS;
+		m_control = ATA_SECONDARY_CONTROL;
+	}
+	msleep(10);
+	soft_reset();
+	if (master) outb(m_bus + ATA_REG_HDDEVSEL, 0xA0);
+	else outb(m_bus + ATA_REG_HDDEVSEL, 0xB0);
+	io_wait();
+	unsigned char cl = inb(m_bus + ATA_REG_LBA1);
+	unsigned char ch = inb(m_bus + ATA_REG_LBA2);
+	unsigned short type = UINT16(cl,ch);
+	print_int((int)type);
+	putch('\n');
+
+	if (cl == 0x14 && ch == 0xEB) return ATADEV_PATAPI;
+	if (cl == 0x69 && ch == 0x96) return ATADEV_SATAPI;
+	if (cl == 0 && ch == 0) return ATADEV_PATA;
+	if (cl == 0x3c && ch == 0xc3) return ATADEV_SATA;
+	return ATADEV_UNKNOWN;
+}
