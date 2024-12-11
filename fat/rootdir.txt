@@ -1,0 +1,4 @@
+
+startsector = lba_start + reserved_sectors_count
+fatsectors = fat_size_32 * number_fats
+rootsector = startsector + fatsectors
