@@ -1,0 +1,40 @@
+
+lba_sector dw
+tablecount db
+sectorpercluster db
+reservedsectors dw
+sectorperfat dd
+rootcluster dd
+
+
+startsector = lba_sector + reservedsectors
+fatsectors = sectorperfat * tablecount
+rootsector = startsector + fatsectors
+
+
+lba_s = lba_sector
+tc = tablecount or numberfats
+rsrvs = reservedsectors
+sectorprfat = sectorperfat
+rootcluster = rootcluster
+
+                lba_s tc sc rsrvs sectorprfat rootcluster
+0x00007D8E:	3F 00 02 01 20 00 FE 00 00 00 02 00 00 00
+
+mov ax, word [reservedsectors]
+mov bx, ax
+mov ax, word [lba_sector]
+add ax, bx
+mov bx, ax                 
+xor ax, ax
+mov al, [tablecount]
+mov dx, ax
+mov ax, word [sectorperfat]
+imul dx
+xchg ax, bx
+add ax, bx 
+
+63 + 32 = 95
+254 * 2 = 508
+95 + 508 = 603
+rootsector = 603
