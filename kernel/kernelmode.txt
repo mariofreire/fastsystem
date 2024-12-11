@@ -1,0 +1,64 @@
+
+global jump_usermode
+extern test_user_function
+jump_usermode:
+	mov ax, (4 * 8) | 3 ; user data segment with RPL 3
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax ; sysexit sets SS
+ 
+	; setup wrmsr inputs
+	xor edx, edx ; not necessary; set to 0
+	mov eax, 0x8 ; the segments are computed as follows: CS=MSR+0x10 (0x8+0x10=0x18), SS=MSR+0x18 (0x8+0x18=0x20).
+	mov ecx, 0x174 ; MSR specifier: IA32_SYSENTER_CS
+	wrmsr ; set sysexit segments
+ 
+	; setup sysexit inputs
+	mov edx, test_user_function ; to be loaded into EIP
+	mov ecx, esp ; to be loaded into ESP
+	sysexit
+	
+
+asmStartKernel:
+  ebx <- ebp  ; put the current stackframe base pointer in ebx
+  ecx <- esp  ; and the current stack pointer
+  eax <- .my_tmp_label ; EIP to jump to in eax.
+  sysenter
+.my_tmp_label:
+  ret
+
+; the location of this symbol is in the SYSENTER_EIP_MSR.
+asmStartKernelHandler:
+  push ebx ; push a pointer to the user stack base.
+  ; copy the stack frame from the user stack using ecx, ebx.
+  jmp eax
+
+asmEndKernel:
+  eax <- [esp+4]  ; eax  = first argument = esp0 = kernel stack base.
+  esp <- [eax]     ; esp = dereference of esp0 = the pushed stackpointer.
+  pop ebp ; restore the base pointer
+  pop edx ; put the return addr in edx
+  mov ecx, esp ; put the return esp in ecx for sysexit
+  sysexit
+  
+ #define START_KERNEL \
+  u32int was_ring_3 = 0;\
+  if (isring3()) { \
+    was_ring_3=1; asmStartKernel(); \
+  }
+
+#define END_KERNEL \
+  if (was_ring_3) { \
+    asmEndKernel(curProcess->esp0); \
+  }
+
+void Class::MemberFunc()
+{
+  START_KERNEL
+
+  code...
+
+  END_KERNEL
+}
+

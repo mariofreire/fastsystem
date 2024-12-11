@@ -1,0 +1,5 @@
+set debug-file-directory /mnt/c/fastsystem/source/kernel
+add-auto-load-safe-path /mnt/c/fastsystem/source/kernel
+set sysroot /mnt/c/fastsystem/source/kernel
+set substitute-path platform-xyz /mnt/c/fastsystem/source/kernel
+directory /mnt/c/fastsystem/source/kernel

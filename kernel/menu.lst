@@ -1,0 +1,5 @@
+default=0
+timeout=0
+title FastSystem
+kernel /boot/fskrnl.elf
+module /boot/modules/loader_module

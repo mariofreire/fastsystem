@@ -1,0 +1,1 @@
+qemu-system-i386 -m 2048 -drive format=raw,media=disk,index=0,file=harddisk.img -drive id=disk0,if=none,file=hdtest.img -device ahci,id=ahci -device ide-hd,drive=disk0,bus=ahci.0 -drive id=disk1,if=none,file=os-test.iso -device ide-cd,drive=disk1,bus=ahci.1
