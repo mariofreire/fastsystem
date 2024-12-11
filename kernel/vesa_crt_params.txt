@@ -1,0 +1,15 @@
+CRT Parameters
+
+Value	Description
+0x0D06	Vertical Total
+0x3E07	Overflow (bit 8 of vertical counts)
+0x4109	Cell height (2 to double scan)
+0xEA10	V sync start
+0xAC11	V sync end and protect cr0-cr7
+0xDF12	Vertical displayed
+0x0014	Turn off dword mode
+0xE715	V blank start
+0x0616	V blank end
+0xE317	Turn on byte mode
+
+All Values are output at CRTC (0x3D4)
