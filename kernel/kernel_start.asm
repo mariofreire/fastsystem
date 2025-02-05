@@ -46,3 +46,4 @@ ret
 section .bss
 	resb 16384
 	
+section .note.GNU-stack
