@@ -7,5 +7,3 @@ GNU C++ compiler multilib support (g++-multilib)
 Netwide Assembler (NASM)
 
 
-
-
