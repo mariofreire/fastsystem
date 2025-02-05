@@ -29,6 +29,9 @@ arith64.o: arith64.c
 crt0.o: crt0.c
 	gcc -m32 -nostdlib -nostartfiles -s -static -ffreestanding -fno-omit-frame-pointer -fno-builtin -fno-exceptions -fno-leading-underscore -fno-pie -fPIC -r -c $< -o $@
 
+io.o: io.c
+	gcc -m32 -nostdlib -nostartfiles -s -static -ffreestanding -fno-omit-frame-pointer -fno-builtin -fno-exceptions -fno-leading-underscore -fno-pie -fPIC -I. -r -c $< -o $@
+
 conio.o: conio.c
 	gcc -m32 -nostdlib -nostartfiles -s -static -ffreestanding -fno-omit-frame-pointer -fno-builtin -fno-exceptions -fno-leading-underscore -fno-pie -fPIC -r -c $< -o $@
 
@@ -44,7 +47,7 @@ string.o: string.c
 errno.o: errno.c
 	gcc -m32 -nostdlib -nostartfiles -s -static -ffreestanding -fno-omit-frame-pointer -fno-builtin -fno-exceptions -fno-leading-underscore -fno-pie -fPIC -r -c $< -o $@
 
-libc.a: crt0.o stdio.o stdlib.o string.o errno.o arith64.o
+libc.a: crt0.o io.o stdio.o stdlib.o string.o errno.o arith64.o
 	ar rcs $@ $^
 	
 testc.elf: testc.c
