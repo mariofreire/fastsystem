@@ -837,3 +837,5 @@ msg db 'Hello',0
 
 section .bss
 	resb 16384
+
+section .note.GNU-stack
