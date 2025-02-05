@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <string.h>
+#include <io.h>
 
 
 unsigned char inb(unsigned short port)
@@ -66,4 +67,60 @@ void outl(unsigned short port, unsigned long value)
 					  "a"(value));
 }
 
+void enable_interrupt(void)
+{
+	__asm__ volatile ("sti");
+}
 
+void disable_interrupt(void)
+{
+	__asm__ volatile ("cli");
+}
+
+void outportb(unsigned short port, unsigned char value)
+{
+	disable_interrupt();
+	outb(port, value);
+	enable_interrupt();
+}
+
+void outportw(unsigned short port, unsigned short value)
+{
+	disable_interrupt();
+	outw(port, value);
+	enable_interrupt();
+}
+
+void outportl(unsigned short port, unsigned long value)
+{
+	disable_interrupt();
+	outl(port, value);
+	enable_interrupt();
+}
+
+void set_irq(unsigned char num, isr_t base)
+{
+	__asm__ volatile ( "int $0x80" :: "a" (486), "b" ((unsigned long)base), "c" (num+32), "d" (0) );
+}
+
+void sound(uint32_t freq)
+{
+ 	uint32_t f_div;
+ 	uint8_t t;
+ 	f_div = (1193180 / freq);
+ 	outb(0x43, 0xb6);
+ 	outb(0x42, (uint8_t)(f_div));
+ 	outb(0x42, (uint8_t)(f_div >> 8));
+ 	t = inb(0x61);
+  	if (t != (t | 3)) 
+	{
+ 		outb(0x61, t | 3);
+ 	}
+}
+
+void nosound()
+{
+	uint8_t t;
+	t = (inb(0x61) & 0xFC);
+	outb(0x61, t);
+}
