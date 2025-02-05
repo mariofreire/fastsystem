@@ -2640,6 +2640,28 @@ void disable_interrupt(void)
 	__asm__ ("cli");
 }
 
+void sound(unsigned long freq)
+{
+ 	unsigned long f_div;
+ 	unsigned char t;
+ 	f_div = (1193180 / freq);
+ 	outb(0x43, 0xB6);
+ 	outb(0x42, (unsigned char)(f_div));
+ 	outb(0x42, (unsigned char)(f_div >> 8));
+ 	t = inb(0x61);
+  	if (t != (t | 3)) 
+	{
+ 		outb(0x61, t | 3);
+ 	}
+}
+
+void nosound()
+{
+	unsigned char t;
+	t = (inb(0x61) & 0xFC);
+	outb(0x61, t);
+}
+
 void restart(void)
 {
 	unsigned char restartcode;
@@ -3062,7 +3084,10 @@ void setidt(int n, unsigned long handler, unsigned short sel, unsigned char flag
 	idt.entry[n].unused = 0x00;
 	idt.entry[n].flags = flags | 0x60;
 	idt.entry[n].high_offset = HIGH16(handler);
-	idt.limit = n + 1;
+	if (n >= idt.limit)
+	{
+		idt.limit = n + 1;
+	}
 }
 
 void loadidt(void)
@@ -3268,25 +3293,866 @@ void remap_irq(void)
     outb(0xA1, 0x00); 
 }
 
+void set_isr(unsigned char int_n)
+{
+	if (int_n == 48)
+	{
+		setidt(48, (unsigned long)isr48, 0x08, 0x8E);
+	}
+	if (int_n == 49)
+	{
+		setidt(49, (unsigned long)isr49, 0x08, 0x8E);
+	}
+	if (int_n == 50)
+	{
+		setidt(50, (unsigned long)isr50, 0x08, 0x8E);
+	}
+	if (int_n == 51)
+	{
+		setidt(51, (unsigned long)isr51, 0x08, 0x8E);
+	}
+	if (int_n == 52)
+	{
+		setidt(52, (unsigned long)isr52, 0x08, 0x8E);
+	}
+	if (int_n == 53)
+	{
+		setidt(53, (unsigned long)isr53, 0x08, 0x8E);
+	}
+	if (int_n == 54)
+	{
+		setidt(54, (unsigned long)isr54, 0x08, 0x8E);
+	}
+	if (int_n == 55)
+	{
+		setidt(55, (unsigned long)isr55, 0x08, 0x8E);
+	}
+	if (int_n == 56)
+	{
+		setidt(56, (unsigned long)isr56, 0x08, 0x8E);
+	}
+	if (int_n == 57)
+	{
+		setidt(57, (unsigned long)isr57, 0x08, 0x8E);
+	}
+	if (int_n == 58)
+	{
+		setidt(58, (unsigned long)isr58, 0x08, 0x8E);
+	}
+	if (int_n == 59)
+	{
+		setidt(59, (unsigned long)isr59, 0x08, 0x8E);
+	}
+	if (int_n == 60)
+	{
+		setidt(60, (unsigned long)isr60, 0x08, 0x8E);
+	}
+	if (int_n == 61)
+	{
+		setidt(61, (unsigned long)isr61, 0x08, 0x8E);
+	}
+	if (int_n == 62)
+	{
+		setidt(62, (unsigned long)isr62, 0x08, 0x8E);
+	}
+	if (int_n == 63)
+	{
+		setidt(63, (unsigned long)isr63, 0x08, 0x8E);
+	}
+	if (int_n == 64)
+	{
+		setidt(64, (unsigned long)isr64, 0x08, 0x8E);
+	}
+	if (int_n == 65)
+	{
+		setidt(65, (unsigned long)isr65, 0x08, 0x8E);
+	}
+	if (int_n == 66)
+	{
+		setidt(66, (unsigned long)isr66, 0x08, 0x8E);
+	}
+	if (int_n == 67)
+	{
+		setidt(67, (unsigned long)isr67, 0x08, 0x8E);
+	}
+	if (int_n == 68)
+	{
+		setidt(68, (unsigned long)isr68, 0x08, 0x8E);
+	}
+	if (int_n == 69)
+	{
+		setidt(69, (unsigned long)isr69, 0x08, 0x8E);
+	}
+	if (int_n == 70)
+	{
+		setidt(70, (unsigned long)isr70, 0x08, 0x8E);
+	}
+	if (int_n == 71)
+	{
+		setidt(71, (unsigned long)isr71, 0x08, 0x8E);
+	}
+	if (int_n == 72)
+	{
+		setidt(72, (unsigned long)isr72, 0x08, 0x8E);
+	}
+	if (int_n == 73)
+	{
+		setidt(73, (unsigned long)isr73, 0x08, 0x8E);
+	}
+	if (int_n == 74)
+	{
+		setidt(74, (unsigned long)isr74, 0x08, 0x8E);
+	}
+	if (int_n == 75)
+	{
+		setidt(75, (unsigned long)isr75, 0x08, 0x8E);
+	}
+	if (int_n == 76)
+	{
+		setidt(76, (unsigned long)isr76, 0x08, 0x8E);
+	}
+	if (int_n == 77)
+	{
+		setidt(77, (unsigned long)isr77, 0x08, 0x8E);
+	}
+	if (int_n == 78)
+	{
+		setidt(78, (unsigned long)isr78, 0x08, 0x8E);
+	}
+	if (int_n == 79)
+	{
+		setidt(79, (unsigned long)isr79, 0x08, 0x8E);
+	}
+	if (int_n == 80)
+	{
+		setidt(80, (unsigned long)isr80, 0x08, 0x8E);
+	}
+	if (int_n == 81)
+	{
+		setidt(81, (unsigned long)isr81, 0x08, 0x8E);
+	}
+	if (int_n == 82)
+	{
+		setidt(82, (unsigned long)isr82, 0x08, 0x8E);
+	}
+	if (int_n == 83)
+	{
+		setidt(83, (unsigned long)isr83, 0x08, 0x8E);
+	}
+	if (int_n == 84)
+	{
+		setidt(84, (unsigned long)isr84, 0x08, 0x8E);
+	}
+	if (int_n == 85)
+	{
+		setidt(85, (unsigned long)isr85, 0x08, 0x8E);
+	}
+	if (int_n == 86)
+	{
+		setidt(86, (unsigned long)isr86, 0x08, 0x8E);
+	}
+	if (int_n == 87)
+	{
+		setidt(87, (unsigned long)isr87, 0x08, 0x8E);
+	}
+	if (int_n == 88)
+	{
+		setidt(88, (unsigned long)isr88, 0x08, 0x8E);
+	}
+	if (int_n == 89)
+	{
+		setidt(89, (unsigned long)isr89, 0x08, 0x8E);
+	}
+	if (int_n == 90)
+	{
+		setidt(90, (unsigned long)isr90, 0x08, 0x8E);
+	}
+	if (int_n == 91)
+	{
+		setidt(91, (unsigned long)isr91, 0x08, 0x8E);
+	}
+	if (int_n == 92)
+	{
+		setidt(92, (unsigned long)isr92, 0x08, 0x8E);
+	}
+	if (int_n == 93)
+	{
+		setidt(93, (unsigned long)isr93, 0x08, 0x8E);
+	}
+	if (int_n == 94)
+	{
+		setidt(94, (unsigned long)isr94, 0x08, 0x8E);
+	}
+	if (int_n == 95)
+	{
+		setidt(95, (unsigned long)isr95, 0x08, 0x8E);
+	}
+	if (int_n == 96)
+	{
+		setidt(96, (unsigned long)isr96, 0x08, 0x8E);
+	}
+	if (int_n == 97)
+	{
+		setidt(97, (unsigned long)isr97, 0x08, 0x8E);
+	}
+	if (int_n == 98)
+	{
+		setidt(98, (unsigned long)isr98, 0x08, 0x8E);
+	}
+	if (int_n == 99)
+	{
+		setidt(99, (unsigned long)isr99, 0x08, 0x8E);
+	}
+	if (int_n == 100)
+	{
+		setidt(100, (unsigned long)isr100, 0x08, 0x8E);
+	}
+	if (int_n == 101)
+	{
+		setidt(101, (unsigned long)isr101, 0x08, 0x8E);
+	}
+	if (int_n == 102)
+	{
+		setidt(102, (unsigned long)isr102, 0x08, 0x8E);
+	}
+	if (int_n == 103)
+	{
+		setidt(103, (unsigned long)isr103, 0x08, 0x8E);
+	}
+	if (int_n == 104)
+	{
+		setidt(104, (unsigned long)isr104, 0x08, 0x8E);
+	}
+	if (int_n == 105)
+	{
+		setidt(105, (unsigned long)isr105, 0x08, 0x8E);
+	}
+	if (int_n == 106)
+	{
+		setidt(106, (unsigned long)isr106, 0x08, 0x8E);
+	}
+	if (int_n == 107)
+	{
+		setidt(107, (unsigned long)isr107, 0x08, 0x8E);
+	}
+	if (int_n == 108)
+	{
+		setidt(108, (unsigned long)isr108, 0x08, 0x8E);
+	}
+	if (int_n == 109)
+	{
+		setidt(109, (unsigned long)isr109, 0x08, 0x8E);
+	}
+	if (int_n == 110)
+	{
+		setidt(110, (unsigned long)isr110, 0x08, 0x8E);
+	}
+	if (int_n == 111)
+	{
+		setidt(111, (unsigned long)isr111, 0x08, 0x8E);
+	}
+	if (int_n == 112)
+	{
+		setidt(112, (unsigned long)isr112, 0x08, 0x8E);
+	}
+	if (int_n == 113)
+	{
+		setidt(113, (unsigned long)isr113, 0x08, 0x8E);
+	}
+	if (int_n == 114)
+	{
+		setidt(114, (unsigned long)isr114, 0x08, 0x8E);
+	}
+	if (int_n == 115)
+	{
+		setidt(115, (unsigned long)isr115, 0x08, 0x8E);
+	}
+	if (int_n == 116)
+	{
+		setidt(116, (unsigned long)isr116, 0x08, 0x8E);
+	}
+	if (int_n == 117)
+	{
+		setidt(117, (unsigned long)isr117, 0x08, 0x8E);
+	}
+	if (int_n == 118)
+	{
+		setidt(118, (unsigned long)isr118, 0x08, 0x8E);
+	}
+	if (int_n == 119)
+	{
+		setidt(119, (unsigned long)isr119, 0x08, 0x8E);
+	}
+	if (int_n == 120)
+	{
+		setidt(120, (unsigned long)isr120, 0x08, 0x8E);
+	}
+	if (int_n == 121)
+	{
+		setidt(121, (unsigned long)isr121, 0x08, 0x8E);
+	}
+	if (int_n == 122)
+	{
+		setidt(122, (unsigned long)isr122, 0x08, 0x8E);
+	}
+	if (int_n == 123)
+	{
+		setidt(123, (unsigned long)isr123, 0x08, 0x8E);
+	}
+	if (int_n == 124)
+	{
+		setidt(124, (unsigned long)isr124, 0x08, 0x8E);
+	}
+	if (int_n == 125)
+	{
+		setidt(125, (unsigned long)isr125, 0x08, 0x8E);
+	}
+	if (int_n == 126)
+	{
+		setidt(126, (unsigned long)isr126, 0x08, 0x8E);
+	}
+	if (int_n == 127)
+	{
+		setidt(127, (unsigned long)isr127, 0x08, 0x8E);
+	}
+	if (int_n == 128)
+	{
+		setidt(128, (unsigned long)isr128, 0x08, 0x8E);
+	}
+	if (int_n == 129)
+	{
+		setidt(129, (unsigned long)isr129, 0x08, 0x8E);
+	}
+	if (int_n == 130)
+	{
+		setidt(130, (unsigned long)isr130, 0x08, 0x8E);
+	}
+	if (int_n == 131)
+	{
+		setidt(131, (unsigned long)isr131, 0x08, 0x8E);
+	}
+	if (int_n == 132)
+	{
+		setidt(132, (unsigned long)isr132, 0x08, 0x8E);
+	}
+	if (int_n == 133)
+	{
+		setidt(133, (unsigned long)isr133, 0x08, 0x8E);
+	}
+	if (int_n == 134)
+	{
+		setidt(134, (unsigned long)isr134, 0x08, 0x8E);
+	}
+	if (int_n == 135)
+	{
+		setidt(135, (unsigned long)isr135, 0x08, 0x8E);
+	}
+	if (int_n == 136)
+	{
+		setidt(136, (unsigned long)isr136, 0x08, 0x8E);
+	}
+	if (int_n == 137)
+	{
+		setidt(137, (unsigned long)isr137, 0x08, 0x8E);
+	}
+	if (int_n == 138)
+	{
+		setidt(138, (unsigned long)isr138, 0x08, 0x8E);
+	}
+	if (int_n == 139)
+	{
+		setidt(139, (unsigned long)isr139, 0x08, 0x8E);
+	}
+	if (int_n == 140)
+	{
+		setidt(140, (unsigned long)isr140, 0x08, 0x8E);
+	}
+	if (int_n == 141)
+	{
+		setidt(141, (unsigned long)isr141, 0x08, 0x8E);
+	}
+	if (int_n == 142)
+	{
+		setidt(142, (unsigned long)isr142, 0x08, 0x8E);
+	}
+	if (int_n == 143)
+	{
+		setidt(143, (unsigned long)isr143, 0x08, 0x8E);
+	}
+	if (int_n == 144)
+	{
+		setidt(144, (unsigned long)isr144, 0x08, 0x8E);
+	}
+	if (int_n == 145)
+	{
+		setidt(145, (unsigned long)isr145, 0x08, 0x8E);
+	}
+	if (int_n == 146)
+	{
+		setidt(146, (unsigned long)isr146, 0x08, 0x8E);
+	}
+	if (int_n == 147)
+	{
+		setidt(147, (unsigned long)isr147, 0x08, 0x8E);
+	}
+	if (int_n == 148)
+	{
+		setidt(148, (unsigned long)isr148, 0x08, 0x8E);
+	}
+	if (int_n == 149)
+	{
+		setidt(149, (unsigned long)isr149, 0x08, 0x8E);
+	}
+	if (int_n == 150)
+	{
+		setidt(150, (unsigned long)isr150, 0x08, 0x8E);
+	}
+	if (int_n == 151)
+	{
+		setidt(151, (unsigned long)isr151, 0x08, 0x8E);
+	}
+	if (int_n == 152)
+	{
+		setidt(152, (unsigned long)isr152, 0x08, 0x8E);
+	}
+	if (int_n == 153)
+	{
+		setidt(153, (unsigned long)isr153, 0x08, 0x8E);
+	}
+	if (int_n == 154)
+	{
+		setidt(154, (unsigned long)isr154, 0x08, 0x8E);
+	}
+	if (int_n == 155)
+	{
+		setidt(155, (unsigned long)isr155, 0x08, 0x8E);
+	}
+	if (int_n == 156)
+	{
+		setidt(156, (unsigned long)isr156, 0x08, 0x8E);
+	}
+	if (int_n == 157)
+	{
+		setidt(157, (unsigned long)isr157, 0x08, 0x8E);
+	}
+	if (int_n == 158)
+	{
+		setidt(158, (unsigned long)isr158, 0x08, 0x8E);
+	}
+	if (int_n == 159)
+	{
+		setidt(159, (unsigned long)isr159, 0x08, 0x8E);
+	}
+	if (int_n == 160)
+	{
+		setidt(160, (unsigned long)isr160, 0x08, 0x8E);
+	}
+	if (int_n == 161)
+	{
+		setidt(161, (unsigned long)isr161, 0x08, 0x8E);
+	}
+	if (int_n == 162)
+	{
+		setidt(162, (unsigned long)isr162, 0x08, 0x8E);
+	}
+	if (int_n == 163)
+	{
+		setidt(163, (unsigned long)isr163, 0x08, 0x8E);
+	}
+	if (int_n == 164)
+	{
+		setidt(164, (unsigned long)isr164, 0x08, 0x8E);
+	}
+	if (int_n == 165)
+	{
+		setidt(165, (unsigned long)isr165, 0x08, 0x8E);
+	}
+	if (int_n == 166)
+	{
+		setidt(166, (unsigned long)isr166, 0x08, 0x8E);
+	}
+	if (int_n == 167)
+	{
+		setidt(167, (unsigned long)isr167, 0x08, 0x8E);
+	}
+	if (int_n == 168)
+	{
+		setidt(168, (unsigned long)isr168, 0x08, 0x8E);
+	}
+	if (int_n == 169)
+	{
+		setidt(169, (unsigned long)isr169, 0x08, 0x8E);
+	}
+	if (int_n == 170)
+	{
+		setidt(170, (unsigned long)isr170, 0x08, 0x8E);
+	}
+	if (int_n == 171)
+	{
+		setidt(171, (unsigned long)isr171, 0x08, 0x8E);
+	}
+	if (int_n == 172)
+	{
+		setidt(172, (unsigned long)isr172, 0x08, 0x8E);
+	}
+	if (int_n == 173)
+	{
+		setidt(173, (unsigned long)isr173, 0x08, 0x8E);
+	}
+	if (int_n == 174)
+	{
+		setidt(174, (unsigned long)isr174, 0x08, 0x8E);
+	}
+	if (int_n == 175)
+	{
+		setidt(175, (unsigned long)isr175, 0x08, 0x8E);
+	}
+	if (int_n == 176)
+	{
+		setidt(176, (unsigned long)isr176, 0x08, 0x8E);
+	}
+	if (int_n == 177)
+	{
+		setidt(177, (unsigned long)isr177, 0x08, 0x8E);
+	}
+	if (int_n == 178)
+	{
+		setidt(178, (unsigned long)isr178, 0x08, 0x8E);
+	}
+	if (int_n == 179)
+	{
+		setidt(179, (unsigned long)isr179, 0x08, 0x8E);
+	}
+	if (int_n == 180)
+	{
+		setidt(180, (unsigned long)isr180, 0x08, 0x8E);
+	}
+	if (int_n == 181)
+	{
+		setidt(181, (unsigned long)isr181, 0x08, 0x8E);
+	}
+	if (int_n == 182)
+	{
+		setidt(182, (unsigned long)isr182, 0x08, 0x8E);
+	}
+	if (int_n == 183)
+	{
+		setidt(183, (unsigned long)isr183, 0x08, 0x8E);
+	}
+	if (int_n == 184)
+	{
+		setidt(184, (unsigned long)isr184, 0x08, 0x8E);
+	}
+	if (int_n == 185)
+	{
+		setidt(185, (unsigned long)isr185, 0x08, 0x8E);
+	}
+	if (int_n == 186)
+	{
+		setidt(186, (unsigned long)isr186, 0x08, 0x8E);
+	}
+	if (int_n == 187)
+	{
+		setidt(187, (unsigned long)isr187, 0x08, 0x8E);
+	}
+	if (int_n == 188)
+	{
+		setidt(188, (unsigned long)isr188, 0x08, 0x8E);
+	}
+	if (int_n == 189)
+	{
+		setidt(189, (unsigned long)isr189, 0x08, 0x8E);
+	}
+	if (int_n == 190)
+	{
+		setidt(190, (unsigned long)isr190, 0x08, 0x8E);
+	}
+	if (int_n == 191)
+	{
+		setidt(191, (unsigned long)isr191, 0x08, 0x8E);
+	}
+	if (int_n == 192)
+	{
+		setidt(192, (unsigned long)isr192, 0x08, 0x8E);
+	}
+	if (int_n == 193)
+	{
+		setidt(193, (unsigned long)isr193, 0x08, 0x8E);
+	}
+	if (int_n == 194)
+	{
+		setidt(194, (unsigned long)isr194, 0x08, 0x8E);
+	}
+	if (int_n == 195)
+	{
+		setidt(195, (unsigned long)isr195, 0x08, 0x8E);
+	}
+	if (int_n == 196)
+	{
+		setidt(196, (unsigned long)isr196, 0x08, 0x8E);
+	}
+	if (int_n == 197)
+	{
+		setidt(197, (unsigned long)isr197, 0x08, 0x8E);
+	}
+	if (int_n == 198)
+	{
+		setidt(198, (unsigned long)isr198, 0x08, 0x8E);
+	}
+	if (int_n == 199)
+	{
+		setidt(199, (unsigned long)isr199, 0x08, 0x8E);
+	}
+	if (int_n == 200)
+	{
+		setidt(200, (unsigned long)isr200, 0x08, 0x8E);
+	}
+	if (int_n == 201)
+	{
+		setidt(201, (unsigned long)isr201, 0x08, 0x8E);
+	}
+	if (int_n == 202)
+	{
+		setidt(202, (unsigned long)isr202, 0x08, 0x8E);
+	}
+	if (int_n == 203)
+	{
+		setidt(203, (unsigned long)isr203, 0x08, 0x8E);
+	}
+	if (int_n == 204)
+	{
+		setidt(204, (unsigned long)isr204, 0x08, 0x8E);
+	}
+	if (int_n == 205)
+	{
+		setidt(205, (unsigned long)isr205, 0x08, 0x8E);
+	}
+	if (int_n == 206)
+	{
+		setidt(206, (unsigned long)isr206, 0x08, 0x8E);
+	}
+	if (int_n == 207)
+	{
+		setidt(207, (unsigned long)isr207, 0x08, 0x8E);
+	}
+	if (int_n == 208)
+	{
+		setidt(208, (unsigned long)isr208, 0x08, 0x8E);
+	}
+	if (int_n == 209)
+	{
+		setidt(209, (unsigned long)isr209, 0x08, 0x8E);
+	}
+	if (int_n == 210)
+	{
+		setidt(210, (unsigned long)isr210, 0x08, 0x8E);
+	}
+	if (int_n == 211)
+	{
+		setidt(211, (unsigned long)isr211, 0x08, 0x8E);
+	}
+	if (int_n == 212)
+	{
+		setidt(212, (unsigned long)isr212, 0x08, 0x8E);
+	}
+	if (int_n == 213)
+	{
+		setidt(213, (unsigned long)isr213, 0x08, 0x8E);
+	}
+	if (int_n == 214)
+	{
+		setidt(214, (unsigned long)isr214, 0x08, 0x8E);
+	}
+	if (int_n == 215)
+	{
+		setidt(215, (unsigned long)isr215, 0x08, 0x8E);
+	}
+	if (int_n == 216)
+	{
+		setidt(216, (unsigned long)isr216, 0x08, 0x8E);
+	}
+	if (int_n == 217)
+	{
+		setidt(217, (unsigned long)isr217, 0x08, 0x8E);
+	}
+	if (int_n == 218)
+	{
+		setidt(218, (unsigned long)isr218, 0x08, 0x8E);
+	}
+	if (int_n == 219)
+	{
+		setidt(219, (unsigned long)isr219, 0x08, 0x8E);
+	}
+	if (int_n == 220)
+	{
+		setidt(220, (unsigned long)isr220, 0x08, 0x8E);
+	}
+	if (int_n == 221)
+	{
+		setidt(221, (unsigned long)isr221, 0x08, 0x8E);
+	}
+	if (int_n == 222)
+	{
+		setidt(222, (unsigned long)isr222, 0x08, 0x8E);
+	}
+	if (int_n == 223)
+	{
+		setidt(223, (unsigned long)isr223, 0x08, 0x8E);
+	}
+	if (int_n == 224)
+	{
+		setidt(224, (unsigned long)isr224, 0x08, 0x8E);
+	}
+	if (int_n == 225)
+	{
+		setidt(225, (unsigned long)isr225, 0x08, 0x8E);
+	}
+	if (int_n == 226)
+	{
+		setidt(226, (unsigned long)isr226, 0x08, 0x8E);
+	}
+	if (int_n == 227)
+	{
+		setidt(227, (unsigned long)isr227, 0x08, 0x8E);
+	}
+	if (int_n == 228)
+	{
+		setidt(228, (unsigned long)isr228, 0x08, 0x8E);
+	}
+	if (int_n == 229)
+	{
+		setidt(229, (unsigned long)isr229, 0x08, 0x8E);
+	}
+	if (int_n == 230)
+	{
+		setidt(230, (unsigned long)isr230, 0x08, 0x8E);
+	}
+	if (int_n == 231)
+	{
+		setidt(231, (unsigned long)isr231, 0x08, 0x8E);
+	}
+	if (int_n == 232)
+	{
+		setidt(232, (unsigned long)isr232, 0x08, 0x8E);
+	}
+	if (int_n == 233)
+	{
+		setidt(233, (unsigned long)isr233, 0x08, 0x8E);
+	}
+	if (int_n == 234)
+	{
+		setidt(234, (unsigned long)isr234, 0x08, 0x8E);
+	}
+	if (int_n == 235)
+	{
+		setidt(235, (unsigned long)isr235, 0x08, 0x8E);
+	}
+	if (int_n == 236)
+	{
+		setidt(236, (unsigned long)isr236, 0x08, 0x8E);
+	}
+	if (int_n == 237)
+	{
+		setidt(237, (unsigned long)isr237, 0x08, 0x8E);
+	}
+	if (int_n == 238)
+	{
+		setidt(238, (unsigned long)isr238, 0x08, 0x8E);
+	}
+	if (int_n == 239)
+	{
+		setidt(239, (unsigned long)isr239, 0x08, 0x8E);
+	}
+	if (int_n == 240)
+	{
+		setidt(240, (unsigned long)isr240, 0x08, 0x8E);
+	}
+	if (int_n == 241)
+	{
+		setidt(241, (unsigned long)isr241, 0x08, 0x8E);
+	}
+	if (int_n == 242)
+	{
+		setidt(242, (unsigned long)isr242, 0x08, 0x8E);
+	}
+	if (int_n == 243)
+	{
+		setidt(243, (unsigned long)isr243, 0x08, 0x8E);
+	}
+	if (int_n == 244)
+	{
+		setidt(244, (unsigned long)isr244, 0x08, 0x8E);
+	}
+	if (int_n == 245)
+	{
+		setidt(245, (unsigned long)isr245, 0x08, 0x8E);
+	}
+	if (int_n == 246)
+	{
+		setidt(246, (unsigned long)isr246, 0x08, 0x8E);
+	}
+	if (int_n == 247)
+	{
+		setidt(247, (unsigned long)isr247, 0x08, 0x8E);
+	}
+	if (int_n == 248)
+	{
+		setidt(248, (unsigned long)isr248, 0x08, 0x8E);
+	}
+	if (int_n == 249)
+	{
+		setidt(249, (unsigned long)isr249, 0x08, 0x8E);
+	}
+	if (int_n == 250)
+	{
+		setidt(250, (unsigned long)isr250, 0x08, 0x8E);
+	}
+	if (int_n == 251)
+	{
+		setidt(251, (unsigned long)isr251, 0x08, 0x8E);
+	}
+	if (int_n == 252)
+	{
+		setidt(252, (unsigned long)isr252, 0x08, 0x8E);
+	}
+	if (int_n == 253)
+	{
+		setidt(253, (unsigned long)isr253, 0x08, 0x8E);
+	}
+	if (int_n == 254)
+	{
+		setidt(254, (unsigned long)isr254, 0x08, 0x8E);
+	}
+	if (int_n == 255)
+	{
+		setidt(255, (unsigned long)isr255, 0x08, 0x8E);
+	}	
+}
+
+void set_irq(unsigned char n, unsigned long base)
+{
+	setidt(32+n, (unsigned long)base, 0x08, 0x8E);
+}
+
 void loadirq(void)
-{	
+{
 	remap_irq();
-    setidt(32, (unsigned long)irq0, 0x08, 0x8E);
-    setidt(33, (unsigned long)irq1, 0x08, 0x8E);
-    setidt(34, (unsigned long)irq2, 0x08, 0x8E);
-    setidt(35, (unsigned long)irq3, 0x08, 0x8E);
-    setidt(36, (unsigned long)irq4, 0x08, 0x8E);
-    setidt(37, (unsigned long)irq5, 0x08, 0x8E);
-    setidt(38, (unsigned long)irq6, 0x08, 0x8E);
-    setidt(39, (unsigned long)irq7, 0x08, 0x8E);
-    setidt(40, (unsigned long)irq8, 0x08, 0x8E);
-    setidt(41, (unsigned long)irq9, 0x08, 0x8E);
-    setidt(42, (unsigned long)irq10, 0x08, 0x8E);
-    setidt(43, (unsigned long)irq11, 0x08, 0x8E);
-    setidt(44, (unsigned long)irq12, 0x08, 0x8E);
-    setidt(45, (unsigned long)irq13, 0x08, 0x8E);
-    setidt(46, (unsigned long)irq14, 0x08, 0x8E);
-    setidt(47, (unsigned long)irq15, 0x08, 0x8E);
+    set_irq(0, (unsigned long)irq0);
+    set_irq(1, (unsigned long)irq1);
+    set_irq(2, (unsigned long)irq2);
+    set_irq(3, (unsigned long)irq3);
+    set_irq(4, (unsigned long)irq4);
+    set_irq(5, (unsigned long)irq5);
+    set_irq(6, (unsigned long)irq6);
+    set_irq(7, (unsigned long)irq7);
+    set_irq(8, (unsigned long)irq8);
+    set_irq(9, (unsigned long)irq9);
+    set_irq(10, (unsigned long)irq10);
+    set_irq(11, (unsigned long)irq11);
+    set_irq(12, (unsigned long)irq12);
+    set_irq(13, (unsigned long)irq13);
+    set_irq(14, (unsigned long)irq14);
+    set_irq(15, (unsigned long)irq15);
 }
 
 void register_interrupt_handler(unsigned char n, isr_t handler)
@@ -4441,6 +5307,7 @@ void syscall_handler(registers_t *registers)
 		break;
 		case 162:
 		{
+			enable_interrupt();
 			msleep(arg1);
 		}
 		break;
@@ -4523,6 +5390,14 @@ void syscall_handler(registers_t *registers)
 			unsigned char _pci_offset = registers->esi;
 			unsigned long _pci_data = registers->edi;
 			pci_write_long(_pci_bus, _pci_slot, _pci_func, _pci_offset, _pci_data);
+		}
+		break;
+		case 486:
+		{
+			unsigned char int_n = arg2;
+			unsigned long int_b = arg1;
+			set_isr(int_n);
+			register_interrupt_handler(int_n, (isr_t)int_b);
 		}
 		break;
 	};
@@ -7853,6 +8728,12 @@ unsigned char *opendir_sector_dir(unsigned long sector)
 						strcpy(longfilename, "");
 						memcpy(&dir_sector[entryoffset], file, sizeof(file_dir_t));
 						totalfiles++;
+						/*
+						if (strlen(file->name) > 0)
+						{
+							printk("File Entry 0x%X is '%s'\n",entryoffset,file->name);							
+						}
+						*/
 						free(file);
 					}
 				}
@@ -7899,6 +8780,12 @@ unsigned char *opendir_sector_dir(unsigned long sector)
 						}
 						lfn_s[b] = '\0';
 						strcatb(longfilename, lfn_s);
+						/*
+						if (strlen(longfilename) > 0)
+						{
+							printk("File Entry 0x%X is '%s'\n",entryoffset,longfilename);
+						}
+						*/
 					}
 				}
 			}
@@ -7926,15 +8813,15 @@ file_dir_t *readdir_sector_dir(unsigned char *dir_ptr)
 	file_dir_t *entry;
 	file_dir_t *readdir_entries;
 	totalfiles = UINT16(dir_ptr[0], dir_ptr[1]);
-	filecount = UINT16(dir_ptr[2], dir_ptr[3]);
+	filecount = UINT16(dir_ptr[2], dir_ptr[3]);	
 	if (!has_partition_active()) return NULL;
 	if (!isfattype()) return  NULL;
 	if (filecount < 0) return NULL;
 	if (filecount >= totalfiles) return NULL;
+	readdir_entries = (file_dir_t*)&dir_ptr[4];
+	entry = (file_dir_t*)&readdir_entries[filecount];	
 	if (entry->name == NULL) return NULL;
 	if (entry->name[0] == 0) return NULL;
-	readdir_entries = (file_dir_t*)&dir_ptr[4];
-	entry = (file_dir_t*)&readdir_entries[filecount];
 	filecount++;
 	dir_ptr[2] = UCHAR8A(filecount);
 	dir_ptr[3] = UCHAR8B(filecount);
@@ -10421,6 +11308,27 @@ int chdir(const char *path)
 	return result;
 }
 
+void dump_hex(const void *data, size_t size) {
+    const unsigned char *buffer = (const unsigned char *)data;
+    size_t i, j;
+
+    for (i = 0; i < size; i += 16) {
+        printk("%06x: ", (unsigned int)i);
+
+        for (j = 0; j < 16; j++) {
+            if (i + j < size)
+                printk("%02x ", buffer[i + j]);
+            else
+                printk("   ");
+
+            if (j % 16 == 7)
+                printk(" ");
+        }
+
+        printk("\n");
+    }
+}
+
 /*
 unsigned int fsallocsize(unsigned int n)
 {
@@ -12056,6 +12964,17 @@ int main(void)
 					}
 				}
 				else
+				if (strcmp(argv[0], "dumpsector") == 0)
+				{
+					if (argc > 1)
+					{
+						unsigned char tmp_sector[SECTORSIZE];
+						unsigned long cur_sector = StrToHex(argv[1]);
+						readsector((unsigned long)cur_sector, tmp_sector);
+						dump_hex(tmp_sector, SECTORSIZE);
+					}
+				}
+				else
 				if (strcmp(argv[0], "shutdown") == 0)
 				{
 					shutdown();
@@ -12071,57 +12990,6 @@ int main(void)
 					printk("%s\n", pwd);
 				}
 				else
-				/*if (strcmp(argv[0], "dir") == 0)
-				{
-					void *dirp;
-					file_dir_t *direntp;
-					char file_name[256];
-					if (argc > 1)
-					{
-						strcpy(file_name, argv[1]);
-					}
-					else
-					{
-						strcpy(file_name, "");
-					}
-					dirp = opendir(file_name);					
-					if( dirp != NULL ) 
-					{
-						for(;;) 
-						{
-							direntp = readdir( dirp );
-							if( direntp == NULL ) break;
-							printk("%s\n", direntp->name);
-						}
-						closedir( dirp );
-					}
-					else 
-					{
-						notfound(argv[0], (char*)file_name);
-					}
-				}
-				else
-				if (strcmp(argv[0], "dir2") == 0)
-				{
-					void *dirp;
-					file_dir_t *direntp;
-					dirp = opendir_sector(getrootdirsector());					
-					if( dirp != NULL ) 
-					{
-						for(;;) 
-						{
-							direntp = readdir_sector( dirp );
-							if( direntp == NULL ) break;
-							printk("%s\n", direntp->name);
-						}
-						closedir_sector( dirp );
-					}
-					else 
-					{
-						notfound(argv[0], "");
-					}
-				}
-				else*/
 				if (strcmp(argv[0], "cd") == 0)
 				{
 					unsigned char has_dir;
