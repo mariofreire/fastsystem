@@ -50,7 +50,7 @@ unsigned char *fat32_fsinfo = (unsigned char *)0x8C00;
 
 unsigned char *loader_kernel = (unsigned char*)0xA000;
 
-unsigned char *external_kernel = (unsigned char*)0xC4B5000;
+unsigned char *external_kernel = (unsigned char*)0xC4B4000;
 
 unsigned char *kernel = (unsigned char *)0xC000000;
 unsigned char *system_variables = (unsigned char *)0x800000;
