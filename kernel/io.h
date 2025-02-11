@@ -28,6 +28,24 @@ typedef struct
 	unsigned long ss;
 } registers_t;
 
+typedef struct 
+{
+    unsigned long edi;
+	unsigned long esi;
+	unsigned long ebp;
+	unsigned long esp;
+	unsigned long ebx;
+	unsigned long edx;
+	unsigned long ecx;
+	unsigned long eax;
+    unsigned short ds;
+	unsigned short es;
+	unsigned short fs;
+	unsigned short gs;
+	unsigned short ss;
+    unsigned long eflags;
+} registers32_t;
+
 typedef void (*isr_t)(registers_t *);
 
 extern unsigned char inb(unsigned short port);
