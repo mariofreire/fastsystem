@@ -4,959 +4,36 @@
 // Copyright (C) 2024 DSP Interactive.
 
 #include <stdarg.h>
+#include "fskrnl.h"
 #include "enum.h"
 
-extern void print_hex(unsigned short v);
-extern unsigned char getdrivenumber();
-extern unsigned char diskread(void *buffer, unsigned long seek);
-extern void oserror();
-extern unsigned long probememory(void);
-extern void switchtousermode(void);
-extern void switchtokernelmode(void);
 
-extern void shell_code_exec(void *, int argc, char **argv);
-extern void shell_code_exit(unsigned long);
+unsigned char *root_sector = (unsigned char *)SYSTEM_ROOT_SECTOR;
+unsigned char *mbr_sector = (unsigned char *)SYSTEM_MBR_SECTOR;
+unsigned char *boot_sector = (unsigned char *)SYSTEM_BOOT_SECTOR;
+unsigned char *disk_address_packet = (unsigned char *)SYSTEM_DISK_ADDRESS_PACKET;
+unsigned char *vga_memory = (unsigned char *)SYSTEM_VGA_MEMORY;
+unsigned char *video_memory = (unsigned char *)SYSTEM_VIDEO_MEMORY;
+unsigned char *vesa_info_buffer = (unsigned char *)SYSTEM_VESA_INFO_BUFFER;
+unsigned char *vesa_mode_buffer = (unsigned char *)SYSTEM_VESA_MODE_BUFFER;
+unsigned char *fat32_fsinfo = (unsigned char *)SYSTEM_FAT32_FSINFO;
+unsigned char *loader_kernel = (unsigned char *)SYSTEM_LOADER_KERNEL;
+unsigned char *external_kernel = (unsigned char *)SYSTEM_EXTERNAL_KERNEL;
+unsigned char *kernel = (unsigned char *)SYSTEM_KERNEL;
+unsigned char *system_variables = (unsigned char *)SYSTEM_ADDRESS_VARIABLES;
+unsigned char *system_variables_info = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_INFO;
+unsigned char *system_variables_enum = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_ENUM;
+unsigned char *system_variables_enum_info = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_ENUM_INFO;
+unsigned char *system_info = (unsigned char *)SYSTEM_ADDRESS_INFO;
+unsigned char *system_pci = (unsigned char *)SYSTEM_ADDRESS_PCI;
+unsigned char *system_errno = (unsigned char *)SYSTEM_ADDRESS_ERRNO;
+unsigned char *system_memory_map_info = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP_INFO;
+unsigned char *system_memory_map = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP;
+unsigned char *ahci_ptr = (unsigned char *)SYSTEM_AHCI_PTR;
 
-extern void kernelmode_start(void);
-
-extern void pic_set(void);
-extern void pic_restore(void);
-
-unsigned char set_video_vesa_mode(unsigned short mode);
-
-void printk(const char *msg, ...);
-
-void *get_ptr(unsigned long offset);
-unsigned long get_addr(void *ptr);
-
-void kernelmode_preinit(void);
-void kernelmode_init(void);
-
-void presskey(void);
-int chdir(const char *path);
-
-unsigned char *root_sector = (unsigned char *)0x9000;
-
-unsigned char *mbr_sector = (unsigned char *)0x8400;
-unsigned char *boot_sector = (unsigned char *)0x8600;
-unsigned char *disk_address_packet = (unsigned char *)0x8200;
-
-unsigned char *vga_memory = (unsigned char *)0xB8000;
-unsigned char *video_memory = (unsigned char *)0xA0000;
-unsigned char *vesa_info_buffer = (unsigned char *)0x8800;
-unsigned char *vesa_mode_buffer = (unsigned char *)0x8A00;
-
-unsigned char *fat32_fsinfo = (unsigned char *)0x8C00;
-
-unsigned char *loader_kernel = (unsigned char*)0xA000;
-
-unsigned char *external_kernel = (unsigned char*)0xC4B4000;
-
-unsigned char *kernel = (unsigned char *)0xC000000;
-unsigned char *system_variables = (unsigned char *)0x800000;
-unsigned char *system_variables_info = (unsigned char *)0x808000;
-
-unsigned char *system_variables_enum = (unsigned char *)0x810000;
-unsigned char *system_variables_enum_info = (unsigned char *)0x818000;
-
-unsigned char *system_info = (unsigned char *)0x840000;
-
-unsigned char *system_pci = (unsigned char *)0x840300;
-
-unsigned char *system_errno = (unsigned char *)0x850000;
-
-unsigned char *ahci_ptr = (unsigned char *)0x841500;
-
-void putchar(const char c);
-void puts(const char *s);
-
-
-#define STORAGE_CONTROLLER_NONE    	0x0000
-#define STORAGE_CONTROLLER_IDE     	0x0010
-#define STORAGE_CONTROLLER_SCSI    	0x0020
-#define STORAGE_CONTROLLER_AHCI    	0x0040
-#define STORAGE_CONTROLLER_UHCI    	0x0080
-#define STORAGE_CONTROLLER_OHCI    	0x0100
-#define STORAGE_CONTROLLER_EHCI    	0x0200
-#define STORAGE_CONTROLLER_XHCI    	0x0400
-#define STORAGE_CONTROLLER_NVME    	0x0800
-#define STORAGE_CONTROLLER_OTHER   	0x1000
-#define STORAGE_CONTROLLER_UNKNOWN 	0xFFFF
-
-
-#define USE_DAP
-#define DAP_ONLY_TRY_WHEN_ERROR
-
-#define TEXT_COLS                             80
-#define TEXT_ROWS                             25
-
-#define CODE_SEGMENT 0x08
-#define DATA_SEGMENT 0x10
-#define TSS_RING 0x03
-#define TSS_CODE_SEGMENT (CODE_SEGMENT|TSS_RING)
-#define TSS_DATA_SEGMENT (DATA_SEGMENT|TSS_RING)
-#define KERNEL_MODE_CODE_SEGMENT CODE_SEGMENT
-#define KERNEL_MODE_DATA_SEGMENT DATA_SEGMENT
-#define USER_MODE_CODE_SEGMENT (KERNEL_MODE_DATA_SEGMENT|TSS_CODE_SEGMENT)
-#define USER_MODE_DATA_SEGMENT (KERNEL_MODE_DATA_SEGMENT|TSS_DATA_SEGMENT)
-
-#define SECTORSIZE 512
-
-#define TRUE 1
-#define FALSE 0
-#define true TRUE
-#define false FALSE
-
-#define PARTITION_ACTIVE 0x80
-#define PARTITION_INACTIVE 0x00
-
-#define MAX_PARTITION 4
-
-#define BOOT_SIGNATURE 0xAA55
-
-#define PARTITION_FAT16 0x06
-#define PARTITION_FAT16_LBA 0x0E
-#define PARTITION_FAT32 0x0B
-#define PARTITION_FAT32_LBA 0x0C
-
-#define PARTITION_UNKNOWN 0x00
-#define PARTITION_EXTENDED 0x05
-#define PARTITION_EXTENDED_LBA 0x0F
-
-
-#define MBR_BOOTSTRAP_SIZE 0x1BE
-#define FAT32_BOOTSTRAP_SIZE 0x1A4
-//#define FAT16_BOOTSTRAP_SIZE 0x1C0
-#define FAT16_BOOTSTRAP_SIZE 0x1C
-
-#define FAT_ENTRY_SIZE 32
-
-#define F_ATTR_NORMAL 0x00
-#define F_ATTR_RDONLY 0x01
-#define F_ATTR_HIDDEN 0x02
-#define F_ATTR_SYSTEM 0x04
-#define F_ATTR_VOLMID 0x08
-#define F_ATTR_DIRECT 0x10
-#define F_ATTR_ARCHVE 0x20
-#define F_ATTR_LNGFNM 0x0F
-
-#define FILE_NAME_DELETED 0xE5
-#define FILE_NAME_DIRECTORY 0x2E
-
-typedef unsigned char bool;
-
-typedef unsigned char BYTE;
-typedef unsigned short WORD;
-typedef unsigned long DWORD;
-typedef unsigned long long QWORD;
-
-
-#define INT86_BASE_ADDRESS 0x7C00
-
-#define CHAR_BACKSPACE 8
-#define CHAR_TAB 9
-#define CHAR_RETURN 13
-
-#define xyoffset(_x,_y,_w) ((_w*_y) + _x)
-#define xyoffset16(_x,_y,_w)  ((_w*_y) + (_x * 2))
-#define xyoffset24(_x,_y,_w)  ((_w*_y) + (_x * 3))
-#define xyoffset32(_x,_y,_w)  ((_w*_y) + (_x * 4))
-
-#define BLACK                           0
-#define BLUE                            1
-#define GREEN                           2
-#define CYAN                            3
-#define RED                             4
-#define MAGENTA                         5
-#define BROWN                           6
-#define SILVER                          7
-#define GRAY                            8
-#define LIGHTBLUE                       9
-#define LIGHTGREEN                      10
-#define LIGHTCYAN                       11
-#define LIGHTRED                        12
-#define LIGHTMAGENTA                    13
-#define YELLOW                          14
-#define WHITE                           15
-
-
-#define TEXTCOLOR_DEFAULT               SILVER
-
-#define textoffset(_x,_y) (2 * xyoffset(_x,_y,TEXT_COLS))
-#define textoffsety(_offset) (_offset/(2*TEXT_COLS))
-#define textoffsetx(_offset) ((_offset-(textoffsety(_offset)*2*TEXT_COLS))/2)
-
-#define isspace(c)                      (c == ' ')
-#define isnumber(c)                      ((c >= '0') && (c <= '9'))
-#define isalpha(c)                      (((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')))
-#define isalnum(c)                      (isalpha(c) || isnumber(c))
-#define issign(c)                      ((c == '-') || (c == '+') || (c == '*') || (c == '/') || (c == '='))
-#define isspecial(c)                      ((c == '\\') || (c == ';') || (c == '\'') || (c == '[') || (c == ']') || (c == ',') || (c == '.'))
-
-#define flagbit(value, index) ((value >> index) & ((1 << 1) - 1))
-
-#define UCHAR8A(value) ((unsigned char)(value))
-#define UCHAR8B(value) ((unsigned char)((value)>> 8))
-#define UCHAR8C(value) ((unsigned char)((value)>>16))
-#define UCHAR8D(value) ((unsigned char)((value)>>24))
-#define UINT16(a,b) ((unsigned long)((unsigned char)(a)|((unsigned char)(b)<<8)))
-#define UINT32(a,b,c,d) ((unsigned long)((unsigned char)(a)|((unsigned char)(b)<<8)|((unsigned char)(c)<<16)|((unsigned char)(d)<<24)))
-#define USHORT16(a,b) ((unsigned long)(((unsigned long)(a)<<16)|((unsigned short)(b))))
-
-
-#define HIGH16(a) ((unsigned short)(((a)>>16)&0xFFFF))
-#define LOW16(a) ((unsigned short)((a)&0xFFFF))
-
-
-
-
-typedef long unsigned int size_t;
-
-#define NULL 0LL
-
-
-
-
-#define IRQ0 32
-#define IRQ1 33
-#define IRQ2 34
-#define IRQ3 35
-#define IRQ4 36
-#define IRQ5 37
-#define IRQ6 38
-#define IRQ7 39
-#define IRQ8 40
-#define IRQ9 41
-#define IRQ10 42
-#define IRQ11 43
-#define IRQ12 44
-#define IRQ13 45
-#define IRQ14 46
-#define IRQ15 47
-
-
-
-// Vendor strings from CPUs.
-#define CPUID_VENDOR_AMD           "AuthenticAMD"
-#define CPUID_VENDOR_AMD_OLD       "AMDisbetter!"
-#define CPUID_VENDOR_INTEL         "GenuineIntel"
-#define CPUID_VENDOR_VIA           "VIA VIA VIA "
-#define CPUID_VENDOR_TRANSMETA     "GenuineTMx86"
-#define CPUID_VENDOR_TRANSMETA_OLD "TransmetaCPU"
-#define CPUID_VENDOR_CYRIX         "CyrixInstead"
-#define CPUID_VENDOR_CENTAUR       "CentaurHauls"
-#define CPUID_VENDOR_NEXGEN        "NexGenDriven"
-#define CPUID_VENDOR_UMC           "UMC UMC UMC "
-#define CPUID_VENDOR_SIS           "SiS SiS SiS "
-#define CPUID_VENDOR_NSC           "Geode by NSC"
-#define CPUID_VENDOR_RISE          "RiseRiseRise"
-#define CPUID_VENDOR_VORTEX        "Vortex86 SoC"
-#define CPUID_VENDOR_AO486         "MiSTer AO486"
-#define CPUID_VENDOR_AO486_OLD     "GenuineAO486"
-#define CPUID_VENDOR_ZHAOXIN       "  Shanghai  "
-#define CPUID_VENDOR_HYGON         "HygonGenuine"
-#define CPUID_VENDOR_ELBRUS        "E2K MACHINE "
-
-// Vendor strings from hypervisors.
-#define CPUID_VENDOR_QEMU          "TCGTCGTCGTCG"
-#define CPUID_VENDOR_KVM           " KVMKVMKVM  "
-#define CPUID_VENDOR_VMWARE        "VMwareVMware"
-#define CPUID_VENDOR_VIRTUALBOX    "VBoxVBoxVBox"
-#define CPUID_VENDOR_XEN           "XenVMMXenVMM"
-#define CPUID_VENDOR_HYPERV        "Microsoft Hv"
-#define CPUID_VENDOR_PARALLELS     " prl hyperv "
-#define CPUID_VENDOR_PARALLELS_ALT " lrpepyh vr "
-#define CPUID_VENDOR_BHYVE         "bhyve bhyve "
-#define CPUID_VENDOR_QNX           " QNXQVMBSQG "
-
-// Vendor id from CPUs.
-#define VENDOR_INTEL      1
-#define VENDOR_UMC        2
-#define VENDOR_AMD        3
-#define VENDOR_CYRIX      4
-#define VENDOR_NEXGEN     5
-#define VENDOR_CENTAUR    6
-#define VENDOR_RISE       7
-#define VENDOR_SIS	  	  8
-#define VENDOR_TRANSMETA  9
-#define VENDOR_NSC	     10
-#define VENDOR_HYGON	 11
-#define VENDOR_ZHAOXIN   12
-#define VENDOR_UNKNOWN   99
-
-// CPU vendor id string from CPUs.
-#define CPUID_ID_INTEL      	"Intel"
-#define CPUID_ID_UMC        	"UMC"
-#define CPUID_ID_AMD        	"AMD"
-#define CPUID_ID_CYRIX      	"Cyrix"
-#define CPUID_ID_NEXGEN     	"NexGen"
-#define CPUID_ID_CENTAUR    	"Centaur"
-#define CPUID_ID_RISE       	"Rise"
-#define CPUID_ID_SIS	  	  	"SiS"
-#define CPUID_ID_TRANSMETA  	"Transmeta"
-#define CPUID_ID_NSC	     	"NSC"
-#define CPUID_ID_HYGON	 		"Hygon"
-#define CPUID_ID_ZHAOXIN   		"Zhaoxin"
-#define CPUID_ID_UNKNOWN   		"x86"
-#define CPUID_ID_GENERIC_X86 	"x86"
-#define CPUID_ID_GENERIC_X64	"x64"
-
-
-#define MAXKEYSHANDLERS 2
-
-
-#define RAND_MAX 32767
-
-
-#define nearptr(segment, offset) ((char*)((segment)*16UL+(offset)))
-
-#define MAX_ENUM 128
-#define MAX_VARS 128
-
-
-#pragma pack (push, 1)
-
-typedef struct
-{
-	unsigned long edi;
-	unsigned long esi;
-	unsigned long ebp;
-	unsigned long esp;
-	unsigned long ebx;
-	unsigned long edx;
-	unsigned long ecx;
-	unsigned long eax;
-} cpu_state_t;
-
-typedef struct
-{
-	unsigned long int_no;
-	unsigned long err_code;
-	unsigned long eip;
-	unsigned long cs;
-	unsigned long eflags;
-	unsigned long useresp;
-	unsigned long ss;
-} stack_state_t;
-
-typedef struct
-{
-	unsigned short segment_limit;
-	unsigned short low_base;
-	unsigned char mid_base;
-	unsigned char access;
-	unsigned char flags;
-	unsigned char high_base;
-} gdt_entry_t;
-
-typedef struct
-{
-	unsigned short limit;
-	unsigned long base;
-} gdt_register_t;
-
-typedef struct
-{
-	gdt_entry_t entry[8];
-	unsigned char limit;
-	gdt_register_t descriptor;
-} gdt_t;
-
-typedef struct
-{
-	unsigned short low_offset;
-	unsigned short segment_sel;
-	unsigned char unused;
-	unsigned char flags;
-	unsigned short high_offset;
-} idt_gate_t;
-
-typedef struct
-{
-	unsigned short limit;
-	unsigned long base;
-} idt_register_t;
-
-typedef struct
-{
-	idt_gate_t entry[256];
-	unsigned char limit;
-	idt_register_t descriptor;
-} idt_t;
-
-typedef struct 
-{
-	unsigned long prev_tss;
-	unsigned long esp0;
-	unsigned long ss0;
-	unsigned long esp1;
-	unsigned long ss1;
-	unsigned long esp2;
-	unsigned long ss2;
-	unsigned long cr3;
-	unsigned long eip;
-	unsigned long eflags;
-	unsigned long eax;
-	unsigned long ecx;
-	unsigned long edx;
-	unsigned long ebx;
-	unsigned long esp;
-	unsigned long ebp;
-	unsigned long esi;
-	unsigned long edi;
-	unsigned long es;
-	unsigned long cs;
-	unsigned long ss;
-	unsigned long ds;
-	unsigned long fs;
-	unsigned long gs;
-	unsigned long ldt;
-	unsigned short trap;
-	unsigned short iomap_base;
-} tss_t;
-
-typedef struct
-{
-	unsigned long ds;
-	unsigned long edi;
-	unsigned long esi;
-	unsigned long ebp;
-	unsigned long esp;
-	unsigned long ebx;
-	unsigned long edx;
-	unsigned long ecx;
-	unsigned long eax;
-	unsigned long int_no;
-	unsigned long error_code;
-	unsigned long eip;
-	unsigned long cs;
-	unsigned long eflags;
-	unsigned long useresp;
-	unsigned long ss;
-} registers_t;
-
-typedef struct
-{
-    unsigned short di;
-	unsigned short si;
-	unsigned short bp;
-	unsigned short sp;
-	unsigned short bx;
-	unsigned short dx;
-	unsigned short cx;
-	unsigned short ax;
-    unsigned short gs;
-	unsigned short fs;
-	unsigned short es;
-	unsigned short ds;
-	unsigned short flags;
-} registers16_t;
-
-typedef struct
-{
-	unsigned char head;
-	unsigned char sector;
-	unsigned char cylinder;
-} chs_t;
-
-typedef struct
-{
-	unsigned char flag;
-	chs_t chs_start;
-	unsigned char type;
-	chs_t chs_end;
-	unsigned long lba_start;
-	unsigned long lba_end;
-} partition_entry_t;
-
-typedef struct
-{
-	unsigned char bootstrap[MBR_BOOTSTRAP_SIZE];
-	partition_entry_t partition[4];
-	unsigned short signature;
-} mbr_t;
-
-typedef struct
-{
-	unsigned char size;
-	unsigned char unused;
-	unsigned short sector_count;
-	unsigned long buffer_ptr;
-	unsigned long lba_start_1;
-	unsigned long lba_start_2;
-} dap_t;
-
-typedef struct
-{
-	unsigned short bytes_per_sector;
-	unsigned char sector_per_cluster;
-	unsigned short reserved_sectors_count;
-	unsigned char number_fats;
-	unsigned short root_entries_count;
-	unsigned short total_sectors_16;
-	unsigned char media;
-	unsigned short fat_size_16;
-	unsigned short sectors_per_track;
-	unsigned short number_heads;
-	unsigned long hidden_sectors;
-	unsigned long total_sectors_32;
-} fat_bpb1_t;
-
-typedef union
-{
-	struct
-	{
-		unsigned char drive_number;
-		unsigned char reserved;
-		unsigned char boot_signature;
-		unsigned long volume_id;
-		unsigned char volume_label[11];
-		unsigned char type[8];
-		unsigned char bootstrap[FAT16_BOOTSTRAP_SIZE];
-	} fat16;
-	struct
-	{
-		unsigned long fat_size_32;
-		unsigned short flags;
-		unsigned short version;
-		unsigned long root_cluster;
-		unsigned short fs_info;
-		unsigned short backup_boot_sector;
-		unsigned char reserved_0[12];
-		unsigned char drive_number;
-		unsigned char reserved_1;
-		unsigned char boot_signature;
-		unsigned long volume_id;
-		unsigned char volume_label[11];
-		unsigned char type[8];
-	} fat32;
-} fat_bpb2_t;
-
-typedef struct
-{
-	fat_bpb1_t bpb1;
-	fat_bpb2_t bpb2;
-} fat_bpb_t;
-
-typedef struct
-{
-	unsigned char jump_opcode;
-	unsigned char jump_boot;
-	unsigned char jump_boot2;
-	unsigned char oem_name[8];
-	fat_bpb_t bpb;
-	unsigned char bootstrap[FAT32_BOOTSTRAP_SIZE];
-	unsigned short signature;
-} fat_t;
-
-typedef struct
-{
-	unsigned long lead_signature;
-	unsigned char reserved_1[480];
-	unsigned long struc_signature;
-	unsigned long free_count;
-	unsigned long next_free;
-	unsigned char reserved_2[12];
-	unsigned long trail_signature;
-} fat32_fsinfo_t;
-
-typedef struct
-{
-	char name[11];
-	unsigned char attribute;
-	unsigned char reserved;
-	unsigned char creation_time_tenth;
-	unsigned short creation_time;
-	unsigned short creation_date;
-	unsigned short last_date;
-	unsigned short first_cluster_hi;
-	unsigned short write_time;
-	unsigned short write_date;
-	unsigned short first_cluster_lo;
-	unsigned long size;
-} file_entry_t;
-
-typedef struct
-{
-    char path[256];
-} path_t;
-
-typedef struct
-{
-path_t path[32];
-int pathcount;
-} path_sub_t;
-
-typedef struct
-{
-	char name[256];
-	unsigned short attribute;
-	unsigned char creation_time_tenth;
-	unsigned short creation_time;
-	unsigned short creation_date;
-	unsigned short last_date;
-	unsigned short write_time;
-	unsigned short write_date;
-	unsigned long first_cluster;
-	unsigned long size;
-} file_dir_t;
-
-typedef struct
-{
-  char name1[11];
-  unsigned char attribute;
-  char name2[20];
-} file_lfn_entry_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned short version;
-	unsigned long oem;
-	unsigned long capabilities;
-	unsigned long mode_list;
-	unsigned short video_memory_size;
-	char reserved_0[236];
-	char reserved_1[256];
-} vesa_info_t;
-
-typedef struct
-{
-	unsigned short mode_attributes;
-	unsigned char window_a_attributes;
-	unsigned char window_b_attributes;
-	unsigned short window_granularity;
-	unsigned short window_size;
-	unsigned short window_a_segment;
-	unsigned short window_b_segment;
-	unsigned long window_far_ptr;
-	unsigned short scan_line_size;
-	unsigned short width;
-	unsigned short height;
-	unsigned char char_width;
-	unsigned char char_height;
-	unsigned char planes;
-	unsigned char depth;
-	unsigned char banks;
-	unsigned char memory_model;
-	unsigned char bank_size;
-	unsigned char pages;
-	char reserved_0;
-	unsigned char red_width;
-	unsigned char red_shift;
-	unsigned char green_width;
-	unsigned char green_shift;
-	unsigned char blue_width;
-	unsigned char blue_shift;
-	char reserved_1[3];
-	unsigned long lfb_address;
-	char reserved_2[212];
-} vesa_mode_t;
-
-typedef struct
-{
-	char name[128];
-	char value[128];
-} sys_vars_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned short version;
-	unsigned char reserved;
-	unsigned char machine;
-	unsigned short flags;
-	unsigned long count;
-	unsigned long checksum;
-	unsigned long key;
-	unsigned long crc;
-	char id[38];
-} sys_vars_info_t;
-
-typedef struct
-{
-	char name[MAX_ENUM][65];
-	int value[MAX_ENUM];
-} sys_enum_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned short version;
-	unsigned char reserved;
-	unsigned char machine;
-	unsigned short flags;
-	unsigned long count;
-	unsigned long checksum;
-	unsigned long key;
-	unsigned long crc;
-	char id[38];
-} sys_enum_info_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned long version;
-	unsigned short flags;
-	unsigned char unused;
-	unsigned long multi_boot;
-	unsigned long heap_1_size;
-	unsigned long heap_2_size;
-	unsigned long heap_3_size;
-	unsigned long heap_4_size;
-	unsigned long physical_memory;
-	unsigned long cpu_speed;
-	unsigned long cpu_id_family;
-	unsigned long cpu_id_model;
-	unsigned long cpu_id_stepping;
-	unsigned long cpu_id_type;
-	unsigned char cpu_id_longmode;
-	char cpu_id_name[32];
-	char cpu_id_str[64];
-	char cpu_brand_str[256];
-	char reserved[104];
-} system_info_t;
-
-typedef struct
-{
-	unsigned short vendor;
-	unsigned short device;
-	unsigned short command;
-	unsigned short status;
-	unsigned char revision;
-	unsigned char progif;
-	unsigned char subclass;
-	unsigned char class;
-	unsigned char cache;
-	unsigned char lat_timer;
-	unsigned char header_type;
-	unsigned char bist;
-	unsigned long bar[6];
-	unsigned long cardbus;
-	unsigned short subsystem_vendor;
-	unsigned short subsystem_id;
-	unsigned long rom_base_addr;
-	unsigned char cap_ptr;
-	unsigned char reserved0[3];
-	unsigned long reserved1;
-	unsigned char interrupt_line;
-	unsigned char interrupt_pin;
-	unsigned char min_gnt;
-	unsigned char max_lat;
-} pci_t;
-
-typedef struct
-{
-	unsigned char bus;
-	unsigned char slot;
-	unsigned char function;
-	pci_t pci;
-} pci_device_t;
-
-typedef struct 
-{
-	unsigned char class;
-	unsigned char subclass;
-	const char *name;
-} pci_class_name_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned char version;
-	unsigned char count;
-	pci_device_t device[32];
-} system_pci_t;
-
-typedef struct
-{
-	char *cmdline;
-	char *hypervisor;
-	char *filename;
-	int paramcount;
-	char **params;
-} external_kernel_t;
-
-typedef struct 
-{
-    unsigned long present :1;
-    unsigned long read_write :1;
-    unsigned long user_supervisor :1;
-    unsigned long write_through :1;
-    unsigned long cache_disable :1;
-    unsigned long accessed :1;
-    unsigned long dirty :1;
-    unsigned long page_size :1;
-    unsigned long global :1;
-    unsigned long available :3;
-    unsigned long frame :20;
-} page_directory_t;
-
-typedef struct 
-{
-    unsigned long present :1;
-    unsigned long read_write :1;
-    unsigned long user_supervisor :1;
-    unsigned long write_through :1;
-    unsigned long cache_disable :1;
-    unsigned long accessed :1;
-    unsigned long dirty :1;
-    unsigned long page_size :1;
-    unsigned long global :1;
-    unsigned long available :3;
-    unsigned long frame :20;
-} page_table_t;
-
-typedef struct
-{
-	unsigned long flags;
-	unsigned long memory_low;
-	unsigned long memory_high;
-	unsigned long boot_device;
-	unsigned long cmdline;
-	unsigned long module_count;
-	unsigned long module_address;
-} multiboot_info_t;
-
-typedef struct
-{
-	unsigned long module_start;
-	unsigned long module_end;
-	unsigned long cmdline;
-	unsigned long padding;
-} multiboot_module_t;
-
-typedef struct
-{
-	unsigned long clb;
-	unsigned long clbu;
-	unsigned long fb;
-	unsigned long fbu;
-	unsigned long is;
-	unsigned long ie;
-	unsigned long cmd;
-	unsigned long rsv0;
-	unsigned long tfd;
-	unsigned long sig;
-	unsigned long ssts;
-	unsigned long sctl;
-	unsigned long serr;
-	unsigned long sact;
-	unsigned long ci;
-	unsigned long sntf;
-	unsigned long fbs;
-	unsigned long rsv1[11];
-	unsigned long vendor[4];
-} ahci_hba_port_t;
-
-typedef struct
-{
-	unsigned long cap;
-	unsigned long ghc;
-	unsigned long is;
-	unsigned long pi;
-	unsigned long vs;
-	unsigned long ccc_ctl;
-	unsigned long ccc_pts;
-	unsigned long em_loc;
-	unsigned long em_ctl;
-	unsigned long cap2;
-	unsigned long bohc;
-	unsigned char  rsv[0xA0-0x2C];
-	unsigned char  vendor[0x100-0xA0];
-	ahci_hba_port_t	ports[32];
-} ahci_hba_memory_t;
-
-typedef struct
-{
-	unsigned long dba;
-	unsigned long dbau;
-	unsigned long rsv0;
-	unsigned long dbc:22;
-	unsigned long rsv1:9;
-	unsigned long i:1;
-} ahci_hba_prdt_entry_t;
-
-typedef struct
-{
-	unsigned char cfis[64];
-	unsigned char acmd[16];
-	unsigned char rsv[48];
-	ahci_hba_prdt_entry_t prdt_entry[1];
-} ahci_hba_cmd_tbl_t;
-
-typedef struct
-{
-	unsigned char  cfl:5;
-	unsigned char  a:1;
-	unsigned char  w:1;
-	unsigned char  p:1;
-	unsigned char  r:1;
-	unsigned char  b:1;
-	unsigned char  c:1;
-	unsigned char  rsv0:1;
-	unsigned char  pmp:4;
-	unsigned short prdtl;
-	volatile unsigned long prdbc;
-	unsigned long ctba;
-	unsigned long ctbau;
-	unsigned long rsv1[4];
-} ahci_hba_cmd_header_t;
-
-typedef struct
-{
-	unsigned char fis_type;
-	unsigned char pmport:4;
-	unsigned char rsv0:3;
-	unsigned char c:1;
-	unsigned char command;
-	unsigned char featurel;
-	unsigned char lba0;
-	unsigned char lba1;
-	unsigned char lba2;
-	unsigned char device;
-	unsigned char lba3;
-	unsigned char lba4;
-	unsigned char lba5;
-	unsigned char featureh;
-	unsigned char countl;
-	unsigned char counth;
-	unsigned char icc;
-	unsigned char control;
-	unsigned char rsv1[4];
-} ahci_fis_reg_h2d_t;
-
-typedef struct
-{
-	unsigned long type;
-} ahci_port_t;
-
-typedef struct
-{
-	char signature[4];
-	unsigned char version;
-	unsigned char count;
-	ahci_port_t port[32];
-	unsigned char list_count;
-	unsigned char list[32];
-} ahci_t;
-
-#pragma pack (pop)
-
-#define KERNEL_STACK_SIZE 2048
-
-#define PAGE_SIZE 0x1000
-
-#define PAGE_PRESENT             0x01
-#define PAGE_READWRITE           0x02
-#define PAGE_USER                0x04
 
 unsigned long page_directory[1024] __attribute__((aligned(4096)));
 unsigned long page_table[1024][1024] __attribute__((aligned(4096)));
-
-#define HEAP_START 0xC00000
-#define HEAP_END   0x8000000 // 0x1800000
-#define ALLOC_SIZE_HEADER  8
 
 void * _heap_start;
 void * _heap_end;
@@ -983,43 +60,23 @@ unsigned long free_history[65536];
 
 dap_t* dap;
 mbr_t* mbr;
-
 sys_vars_t *sys_vars;
 sys_vars_info_t *sys_vars_info;
-
 sys_enum_t *sys_enum;
 sys_enum_info_t *sys_enum_info;
-
 system_info_t *info;
-
 multiboot_info_t *multiboot_info;
-
-int active_partition=-1;
 partition_entry_t* partition;
 partition_entry_t *main_partition;
-
 fat_t *fat;
 fat32_fsinfo_t *fsinfo;
-
-file_entry_t file_dir_sector[16];
-
-char volume_id[11];
-
 system_pci_t *sys_pci;
-
-
+memory_map_t *memory_map;
+memory_map_info_t *memory_map_info;
+int active_partition=-1;
+file_entry_t file_dir_sector[16];
+char volume_id[11];
 unsigned short storage_drive_controller = STORAGE_CONTROLLER_NONE;
-
-
-void strtrm(char *s1, char *s2);
-
-void remap_mbr(void);
-
-void *sbrk(size_t len);
-
-unsigned char fileexists(const char *filename);
-unsigned long getfilesize(const char *filename);
-unsigned char getfiledata(const char *filename, unsigned char *data);
 
 external_kernel_t extern_kernel;
 
@@ -1045,30 +102,8 @@ unsigned char pci_count=0;
 int pci_video_memory_found=0;
 unsigned long pci_video_memory_address = 0;
 
-void int86(unsigned char int_no, registers16_t *regs_in, registers16_t *regs_out);
-
-void page_fault(registers_t *registers);
-
-void uuidv4(char *str);
-
 int sys_vars_loaded = 0;
 int sys_enum_loaded = 0;
-
-void add_sys_var(const char* _sys_var_name_, const char* _sys_var_value_);
-
-int has_sys_var(const char* _sys_var_);
-char* get_sys_var(const char* _sys_var_);
-
-#define vars_loaded                     (sys_vars_loaded == 1)
-#define enum_loaded                     (sys_enum_loaded == 1)
-
-#define has_var(_var)                   (has_sys_var(_var))
-#define get_var(_var)                   (get_sys_var(_var))
-
-#define has_not_enum(_enum)             ((((sys_enum->value[_enum]) == 0) ? 1 : 0) && (sys_enum_info->count > _enum) && (sys_enum_loaded == 1))
-#define has_enum(_enum)                 ((((sys_enum->value[_enum]) != 0) ? 1 : 0) && (sys_enum_info->count > _enum) && (sys_enum_loaded == 1))
-#define get_enum(_enum)                 (sys_enum->value[_enum])
-#define total_enum                      (sys_enum_info->count)
 
 extern void isr0();
 extern void isr1();
@@ -1345,6 +380,8 @@ unsigned long ahci_hba_address = 0;
 ahci_hba_port_t *ahci_port;
 ahci_hba_memory_t *ahci_hba;
 ahci_t *ahci;
+
+dma_channel_t dma_channels[DMA_CHANNELS];
 
 unsigned long total_size_files = 0;
 
@@ -2752,7 +1789,7 @@ void setpagetables(void)
 		}
 		for(j=1;j<7;j++)
 		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE;                 //                 PAGE_SIZE-0x6FFF
+			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 PAGE_SIZE-0x6FFF
 			k++;
 		}
 		for(j=7;j<10;j++)
@@ -5311,6 +4348,11 @@ void syscall_handler(registers_t *registers)
 			msleep(arg1);
 		}
 		break;
+		case 224:
+		{
+			//get_video_vesa_mode(arg1);
+		}
+		break;
 		case 225:
 		{
 			set_video_vesa_mode(arg1);
@@ -5390,6 +4432,11 @@ void syscall_handler(registers_t *registers)
 			unsigned char _pci_offset = registers->esi;
 			unsigned long _pci_data = registers->edi;
 			pci_write_long(_pci_bus, _pci_slot, _pci_func, _pci_offset, _pci_data);
+		}
+		break;
+		case 424:
+		{
+			registers->eax = get_video_mode();
 		}
 		break;
 		case 486:
@@ -5852,25 +4899,135 @@ void detectide(void)
 extern void int86_start();
 extern void int86_end();
 extern void int86_regs();
+extern void int86_int_rsrv();
+extern void int86_int_instr();
 extern void int86_int_no();
+
+extern void int386_start();
+extern void int386_end();
+extern void int386_regs();
+extern void int386_int_rsrv();
+extern void int386_int_instr();
+extern void int386_int_no();
 
 #define get_base_address(x)  (void*)(INT86_BASE_ADDRESS + (void*)x - (unsigned long)int86_start)
 void (*exec_int86_code16)() = (void *)INT86_BASE_ADDRESS;
 
+#define get_base_address_int386(x)  (void*)(INT86_BASE_ADDRESS + (void*)x - (unsigned long)int386_start)
+void (*exec_int386_code16)() = (void *)INT86_BASE_ADDRESS;
+
 void int86(unsigned char int_no, registers16_t *regs_in, registers16_t *regs_out)
 {
+	unsigned long nop_nop_nop = 0x909090;
+	unsigned long int_instr = 0xCD;
 	unsigned long sz = (unsigned long)int86_end - (unsigned long)int86_start;
 	void *code_base_16 = (void*)INT86_BASE_ADDRESS;
 	void *code_regs_1 = (void*)int86_regs;
 	void *code_regs_16 = (void*)get_base_address(code_regs_1);
-	void *code_int_1 = (void*)int86_int_no;
-	void *code_int_16 = get_base_address(code_int_1);
+	void *code_int_1 = (void*)int86_int_rsrv;
+	void *code_int_1_16 = get_base_address(code_int_1);
+	void *code_int_2 = (void*)int86_int_instr;
+	void *code_int_2_16 = get_base_address(code_int_2);
+	void *code_int_3 = (void*)int86_int_no;
+	void *code_int_3_16 = get_base_address(code_int_3);
 	disable_interrupt();
 	memcpy(code_base_16, int86_start, sz);
 	memcpy(code_regs_16, regs_in,  sizeof(registers16_t));
-	memset(code_int_16, int_no, 1);
+	memcpy(code_int_1_16, &nop_nop_nop, 3);
+	memset(code_int_2_16, int_instr, 1);
+	memset(code_int_3_16, int_no, 1);
 	exec_int86_code16();
 	memcpy(regs_out, code_regs_16, sizeof(registers16_t));
+	loadisr();
+	loadirq();
+	loadidt();
+	enable_interrupt();
+}
+
+void int386(unsigned char int_no, registers32_t *regs_in, registers32_t *regs_out)
+{
+	unsigned long nop_nop_nop = 0x909090;
+	unsigned long int_instr = 0xCD;
+	unsigned long sz = (unsigned long)int386_end - (unsigned long)int386_start;
+	void *code_base_16 = (void*)INT86_BASE_ADDRESS;
+	void *code_regs_1 = (void*)int386_regs;
+	void *code_regs_16 = (void*)get_base_address_int386(code_regs_1);
+	void *code_int_1 = (void*)int386_int_rsrv;
+	void *code_int_1_16 = get_base_address_int386(code_int_1);
+	void *code_int_2 = (void*)int386_int_instr;
+	void *code_int_2_16 = get_base_address_int386(code_int_2);
+	void *code_int_3 = (void*)int386_int_no;
+	void *code_int_3_16 = get_base_address_int386(code_int_3);
+	disable_interrupt();
+	memcpy(code_base_16, int386_start, sz);
+	memcpy(code_regs_16, regs_in,  sizeof(registers32_t));
+	memcpy(code_int_1_16, &nop_nop_nop, 3);
+	memset(code_int_2_16, int_instr, 1);
+	memset(code_int_3_16, int_no, 1);
+	exec_int386_code16();
+	memcpy(regs_out, code_regs_16, sizeof(registers32_t));
+	loadisr();
+	loadirq();
+	loadidt();
+	enable_interrupt();
+}
+
+void call86(void *function)
+{
+	unsigned long mov_ax_x6000 = 0x6000B8;
+	unsigned char call_word_ax_1 = 0xFF;
+	unsigned char call_word_ax_2 = 0xD0;
+	registers16_t regs;
+	unsigned long sz = (unsigned long)int86_end - (unsigned long)int86_start;
+	void *code_base_16 = (void*)INT86_BASE_ADDRESS;
+	void *code_regs_1 = (void*)int86_regs;
+	void *code_regs_16 = (void*)get_base_address(code_regs_1);
+	void *code_int_1 = (void*)int86_int_rsrv;
+	void *code_int_1_16 = get_base_address(code_int_1);
+	void *code_int_2 = (void*)int86_int_instr;
+	void *code_int_2_16 = get_base_address(code_int_2);
+	void *code_int_3 = (void*)int86_int_no;
+	void *code_int_3_16 = get_base_address(code_int_3);
+	disable_interrupt();
+	copy_function_to_base(function, 0x1C00, 0x6000);
+	memcpy(code_base_16, int86_start, sz);
+	memset(&regs, 0, sizeof(registers16_t));
+	memcpy(code_regs_16, &regs,  sizeof(registers16_t));
+	memcpy(code_int_1_16, &mov_ax_x6000, 3);
+	memset(code_int_2_16, call_word_ax_1, 1);
+	memset(code_int_3_16, call_word_ax_2, 1);
+	exec_int86_code16();
+	loadisr();
+	loadirq();
+	loadidt();
+	enable_interrupt();
+}
+
+void call386(void *function)
+{
+	unsigned long mov_ax_x6000 = 0x6000B8;
+	unsigned char call_word_ax_1 = 0xFF;
+	unsigned char call_word_ax_2 = 0xD0;
+	registers32_t regs;
+	unsigned long sz = (unsigned long)int386_end - (unsigned long)int386_start;
+	void *code_base_16 = (void*)INT86_BASE_ADDRESS;
+	void *code_regs_1 = (void*)int386_regs;
+	void *code_regs_16 = (void*)get_base_address_int386(code_regs_1);
+	void *code_int_1 = (void*)int386_int_rsrv;
+	void *code_int_1_16 = get_base_address_int386(code_int_1);
+	void *code_int_2 = (void*)int386_int_instr;
+	void *code_int_2_16 = get_base_address_int386(code_int_2);
+	void *code_int_3 = (void*)int386_int_no;
+	void *code_int_3_16 = get_base_address_int386(code_int_3);
+	disable_interrupt();
+	copy_function_to_base(function, 0x1C00, 0x6000);
+	memcpy(code_base_16, int386_start, sz);
+	memset(&regs, 0, sizeof(registers32_t));
+	memcpy(code_regs_16, &regs,  sizeof(registers32_t));
+	memcpy(code_int_1_16, &mov_ax_x6000, 3);
+	memset(code_int_2_16, call_word_ax_1, 1);
+	memset(code_int_3_16, call_word_ax_2, 1);
+	exec_int386_code16();
 	loadisr();
 	loadirq();
 	loadidt();
@@ -11329,6 +10486,230 @@ void dump_hex(const void *data, size_t size) {
     }
 }
 
+
+
+void loadsets(void)
+{
+	root_sector = (unsigned char *)SYSTEM_ROOT_SECTOR;
+	mbr_sector = (unsigned char *)SYSTEM_MBR_SECTOR;
+	boot_sector = (unsigned char *)SYSTEM_BOOT_SECTOR;
+	disk_address_packet = (unsigned char *)SYSTEM_DISK_ADDRESS_PACKET;
+	vga_memory = (unsigned char *)SYSTEM_VGA_MEMORY;
+	video_memory = (unsigned char *)SYSTEM_VIDEO_MEMORY;
+	vesa_info_buffer = (unsigned char *)SYSTEM_VESA_INFO_BUFFER;
+	vesa_mode_buffer = (unsigned char *)SYSTEM_VESA_MODE_BUFFER;
+	fat32_fsinfo = (unsigned char *)SYSTEM_FAT32_FSINFO;
+	loader_kernel = (unsigned char *)SYSTEM_LOADER_KERNEL;
+	external_kernel = (unsigned char *)SYSTEM_EXTERNAL_KERNEL;
+	kernel = (unsigned char *)SYSTEM_KERNEL;
+	system_variables = (unsigned char *)SYSTEM_ADDRESS_VARIABLES;
+	system_variables_info = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_INFO;
+	system_variables_enum = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_ENUM;
+	system_variables_enum_info = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_ENUM_INFO;
+	system_info = (unsigned char *)SYSTEM_ADDRESS_INFO;
+	system_pci = (unsigned char *)SYSTEM_ADDRESS_PCI;
+	system_errno = (unsigned char *)SYSTEM_ADDRESS_ERRNO;
+	system_memory_map_info = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP_INFO;
+	system_memory_map = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP;
+	ahci_ptr = (unsigned char *)SYSTEM_AHCI_PTR;
+}
+
+
+void set_dma_config(unsigned char channel, unsigned long address, unsigned short count) 
+{
+    outb(0x0A, channel); // Set DMA channel
+    outb(0x04, address & 0xFF); // Set low byte of address
+    outb(0x04, (address >> 8) & 0xFF); // Set middle byte of address
+    outb(0x04, (address >> 16) & 0xFF); // Set high byte of address
+    outb(0x05, count & 0xFF); // Set low byte of count
+    outb(0x05, (count >> 8) & 0xFF); // Set high byte of count
+}
+
+void init_adma() 
+{
+    unsigned long *adma_base = (unsigned long *)ADMA_BASE_ADDRESS;
+    *adma_base = 0x01; // enabled
+}
+
+void set_adma_cmd_packet(adma_cmd_packet_t *cpb, unsigned long command, unsigned long address, unsigned long length) 
+{
+    cpb->command = command;
+    cpb->address = address;
+    cpb->length = length;
+}
+
+void transfer_adma(adma_cmd_packet_t *cpb) 
+{
+    unsigned long *adma_base = (unsigned long *)ADMA_BASE_ADDRESS;
+    *adma_base = cpb->command;
+    *(adma_base + 1) = cpb->address;
+    *(adma_base + 2) = cpb->length;
+}
+
+void initialize_dma() 
+{
+    for (int i = 0;i<DMA_CHANNELS;i++) 
+	{
+        dma_channels[i].address = 0;
+        dma_channels[i].page = 0;
+        dma_channels[i].count = 0;
+    }
+}
+
+void set_dma_channel(int channel, unsigned short address, unsigned char count) 
+{
+    if ((channel < 0) || (channel >= DMA_CHANNELS)) 
+	{
+        printk("Invalid DMA channel\n");
+        return;
+    }
+    dma_channels[channel].address = address;
+    dma_channels[channel].count = count;
+    outb(DMA_PAGE_REGISTER, dma_channels[channel].page);
+    outb(0x00 + channel, dma_channels[channel].address & 0xFF);
+    outb(0x00 + channel + 1, (dma_channels[channel].address >> 8) & 0xFF);
+    outb(0x04 + channel, dma_channels[channel].count);
+}
+
+void start_dma_transfer(int channel) 
+{
+    if ((channel < 0) || (channel >= DMA_CHANNELS)) 
+	{
+        printk("Invalid DMA channel\n");
+        return;
+    }
+	// start
+    outb(DMA_COMMAND_REGISTER, channel);
+}
+
+void stop_dma_transfer(int channel) 
+{
+    if ((channel < 0) || (channel >= DMA_CHANNELS))
+	{
+        printk("Invalid DMA channel\n");
+        return;
+    }
+	// stop
+    outb(DMA_COMMAND_REGISTER, channel|0x04);
+}
+
+void init_dma_channel(int channel) 
+{
+    set_dma_channel(channel, 0x1234, 0xFF);
+    start_dma_transfer(channel);
+    stop_dma_transfer(channel);
+}
+
+void dma_setup_prd(prd_t *prd, unsigned long address, unsigned short byte_count)
+{
+    prd->address = address;
+    prd->byte_count = byte_count ? byte_count : 0xFFFF;
+    prd->reserved = 0;
+}
+
+void dma_write_command_byte(unsigned short base, unsigned char command)
+{
+    *((volatile unsigned char *)(base + DMA_COMMAND_BYTE_OFFSET)) = command;
+}
+
+unsigned char dma_read_status_byte(unsigned short base)
+{
+    return *((volatile unsigned char *)(base + DMA_STATUS_BYTE_OFFSET));
+}
+
+void start_dma(unsigned short base)
+{
+    dma_write_command_byte(base, 0x01);
+}
+
+void stop_dma(unsigned short base)
+{
+   dma_write_command_byte(base, 0x00);
+}
+
+void dma_handle_error(unsigned short base)
+{
+    unsigned char status = dma_read_status_byte(base);
+    if (status & 0x02) 
+	{
+        *((volatile unsigned char *)(base + DMA_STATUS_BYTE_OFFSET)) = 0x02;
+    }
+}
+
+void dma_send_command(unsigned short base, unsigned char command)
+{
+    dma_write_command_byte(base, command);
+}
+
+void dma_ata_send_command(unsigned short command, unsigned short bus) 
+{
+    *((volatile unsigned short *)(bus + DMA_ATA_COMMAND_REGISTER)) = command;
+}
+
+unsigned short dma_ata_read_status(unsigned short bus) 
+{
+    return *((volatile unsigned short *)(bus + DMA_ATA_STATUS_REGISTER));
+}
+
+void dma_ata_clear_error(unsigned short bus) 
+{
+    *((volatile unsigned short *)(bus + DMA_ATA_STATUS_REGISTER)) = 0x02; // Clear error
+}
+
+void dma_ata_start(unsigned short bus, prd_t *prdt) 
+{
+    *((volatile unsigned long *)(bus + DMA_ATA_PRDT_ADDRESS_REGISTER)) = (unsigned long)prdt;
+    *((volatile unsigned short *)(bus + DMA_ATA_COMMAND_REGISTER)) = 0x01; // Start DMA
+}
+
+void handle_dma_transfer(unsigned short bus, prd_t *prdt) 
+{
+    dma_ata_start(bus, prdt);
+    unsigned short status = dma_ata_read_status(bus);
+    if (status & 0x02) 
+	{
+        dma_ata_clear_error(bus);
+    }
+}
+
+void loaddma(void)
+{
+    prd_t prd, prdt;
+	// DMA Configuration
+	// Load DMA Devices
+	// ATA/ATAPI using DMA
+    // ISA DMA
+	// ADMA
+	
+	memset(&prd, 0, sizeof(prd_t));
+	memset(&prdt, 0, sizeof(prd_t));
+	
+	// Initialize DMA	
+    initialize_dma();
+	init_dma_channel(1);
+
+    dma_setup_prd(&prd, 0x1000, 0x2000);
+
+    start_dma(PRIMARY_ATA_BUS);
+    dma_send_command(PRIMARY_ATA_BUS, 0xC8);
+    dma_handle_error(PRIMARY_ATA_BUS);
+    stop_dma(PRIMARY_ATA_BUS);
+	
+    dma_setup_prd(&prdt, 0x1000, 0xFFFF);
+    dma_ata_send_command(0xC8, PRIMARY_ATA_BUS);
+    handle_dma_transfer(PRIMARY_ATA_BUS, &prdt);
+	
+	// Load Floppy Device
+	//set_dma_config(0x06, 0x00000000, 0x0000);	
+	
+	// Initialize ADMA
+	adma_cmd_packet_t cpb;
+    init_adma();
+    set_adma_cmd_packet(&cpb, 0x30, 0x1000, 512);
+    transfer_adma(&cpb);
+}
+
+
 /*
 unsigned int fsallocsize(unsigned int n)
 {
@@ -12016,6 +11397,24 @@ int main(void)
 		}
 	}
 	
+	
+	printk("\n");
+	printk("Fast System kernel loaded.\n");
+	printk("Build number: 1000.10, rev: 2025.02\n");
+	printk("\n");
+	
+	printk("Loading DMA Configuration.\n");
+	loaddma();
+	
+	printk("Loading address sets.\n");
+	loadsets();
+	
+    printk("Loading Memory Manager.\n");	
+    loadmmap();
+	
+    //printk("\n");	
+	
+	
 	if (enum_loaded)
 	{
 		if (total_enum > 0)
@@ -12033,9 +11432,10 @@ int main(void)
 		switchtousermode();
 	}
 	
+	
 
 	char *info_str = (char*)malloc(512);
-	strcpy(info_str, "\nFast System Kernel Loader\n     Created by Mario Freire\n\nCopyright (C) 2024 DSP Interactive.\n");
+	strcpy(info_str, "\nFast System Kernel Loader\n     Created by Mario Freire\n\nCopyright (C) 2025 DSP Interactive.\n");
 	printk(info_str);
 	free(info_str);
 
@@ -12080,7 +11480,7 @@ int main(void)
 	*/
 
 	// printk("%d\n", has_cpu_support_longmode());
-
+	
 	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL)))
 	{
 		for(int i=0;i<key_handlers_count;i++)
@@ -13528,6 +12928,88 @@ int main(void)
 					printk("%-15s %15u kB\n", "MemTotal:", total_memory_kb);
 					printk("%-15s %15u kB\n", "MemFree:", free_memory_kb);
 					printk("%-15s %15u kB\n", "MemAvailable:", available_memory_kb);
+				}
+				else 
+				if (strcmp(argv[0], "memorymap") == 0)
+				{
+					unsigned long mm_opts = 0;
+					
+					if (argc > 1)
+					{
+						for(int k=1;k<argc;k++)
+						{
+							if ((strcmp(argv[k], "-a") == 0) || (strcmp(argv[k], "--all") == 0))
+							{
+								mm_opts |= PRINT_MEMORY_MAP_BIOS_MMAP;
+								mm_opts |= PRINT_MEMORY_MAP_SYSTEM_MMAP;
+								mm_opts |= PRINT_MEMORY_MAP_ENTRY_COUNT;
+								mm_opts |= PRINT_MEMORY_MAP_RAM_AVAILABLE;
+								mm_opts |= PRINT_MEMORY_MAP_RAM_RESERVED;
+								mm_opts |= PRINT_MEMORY_MAP_LIST_OFFSET;
+								mm_opts |= PRINT_MEMORY_MAP_LIST_DETAIL;
+							}
+							else
+							{
+								if ((strcmp(argv[k], "-b") == 0) || (strcmp(argv[k], "--bios") == 0))
+								{
+									mm_opts |= PRINT_MEMORY_MAP_BIOS_MMAP;
+								}
+								if ((strcmp(argv[k], "-s") == 0) || (strcmp(argv[k], "--system") == 0))
+								{
+									mm_opts |= PRINT_MEMORY_MAP_SYSTEM_MMAP;
+								}
+								if (
+								((strcmp(argv[k], "-e") == 0) || (strcmp(argv[k], "--entry") == 0))
+								||
+								((strcmp(argv[k], "-c") == 0) || (strcmp(argv[k], "--count") == 0))
+								)
+								{
+									mm_opts |= PRINT_MEMORY_MAP_ENTRY_COUNT;
+								}
+								if (
+								((strcmp(argv[k], "-u") == 0) || (strcmp(argv[k], "--usable") == 0))
+								||
+								((strcmp(argv[k], "-use") == 0) || (strcmp(argv[k], "--used") == 0))
+								||
+								((strcmp(argv[k], "--avail") == 0) || (strcmp(argv[k], "--available") == 0))
+								)
+								{
+									mm_opts |= PRINT_MEMORY_MAP_RAM_AVAILABLE;
+								}
+								if (
+								((strcmp(argv[k], "-r") == 0) || (strcmp(argv[k], "--reserved") == 0))
+								||
+								((strcmp(argv[k], "-f") == 0) || (strcmp(argv[k], "--free") == 0))
+								||
+								((strcmp(argv[k], "-p") == 0) || (strcmp(argv[k], "--space") == 0))
+								)
+								{
+									mm_opts |= PRINT_MEMORY_MAP_RAM_RESERVED;
+								}
+								if (
+								((strcmp(argv[k], "-o") == 0) || (strcmp(argv[k], "--offset") == 0))
+								||
+								((strcmp(argv[k], "-q") == 0) || (strcmp(argv[k], "--area") == 0))
+								)
+								{
+									mm_opts |= PRINT_MEMORY_MAP_LIST_OFFSET;
+								}
+								if (
+								((strcmp(argv[k], "-l") == 0) || (strcmp(argv[k], "--list") == 0))
+								||
+								((strcmp(argv[k], "-d") == 0) || (strcmp(argv[k], "--detail") == 0))
+								)
+								{
+									mm_opts |= PRINT_MEMORY_MAP_LIST_DETAIL;
+								}
+							}
+						}
+					}
+					else
+					{
+						mm_opts |= PRINT_MEMORY_MAP_LIST_DETAIL;
+					}
+					printmemorymap(mm_opts);
 				}
 				else
 				{
