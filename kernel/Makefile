@@ -6,7 +6,7 @@
 all: fskrnl gen-vars write-vars boot put run
 
 # Notice how dependencies are built as needed
-fskrnl.elf: kernel_start.o fskrnl.o functions.o arith64.o
+fskrnl.elf: kernel_start.o fskrnl.o memory.o functions.o arith64.o
 	ld -m elf_i386 -o $@ -T link.ld $^
 	
 fskrnl: fskrnl.elf
@@ -19,6 +19,9 @@ kernel_start.o: kernel_start.asm
 
 functions.o: functions.asm
 	nasm $< -f elf -o $@
+
+memory.o: memory.c
+	gcc -g -O0 -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -nostdlib -nostartfiles -m32 -c $< -o $@
 
 fskrnl.o: fskrnl.c
 	gcc -g -Os -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -nostdlib -nostartfiles -m32 -c $< -o $@
