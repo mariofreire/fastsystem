@@ -7,7 +7,15 @@ global probememory
 global int86_start
 global int86_end
 global int86_regs
+global int86_int_rsrv
+global int86_int_instr
 global int86_int_no
+global int386_regs
+global int386_start
+global int386_end
+global int386_int_rsrv
+global int386_int_instr
+global int386_int_no
 global halt
 global switchtokernelmode
 global switchtousermode
@@ -16,6 +24,8 @@ global shell_code_exit
 global kernelmode_start
 global pic_set
 global pic_restore
+global pic_set_2
+global pic_restore_2
 global load_page_directory
 global enable_paging
 global enable_pse
@@ -44,6 +54,7 @@ extern remap_irq
 
 %define INT86_BASE_ADDRESS 0x7C00
 %define get_base_address(x)  (((x) - int86_start) + INT86_BASE_ADDRESS)
+%define get_base_address_int386(x)  (((x) - int386_start) + INT86_BASE_ADDRESS)
 
 
 %macro isr_noerr 1
@@ -630,7 +641,10 @@ use16
 	call pic_set
 	popa	
 	sti
-	db 0xCD
+int86_int_rsrv: nop
+	nop
+	nop
+int86_int_instr: db 0xCD
 int86_int_no: db 0x00
 	cli
 	xor sp, sp
@@ -717,6 +731,154 @@ int86_end:
 
 
 
+use16
+int386_regs:    
+	int386_r_edi    dd 0
+	int386_r_esi    dd 0
+	int386_r_ebp    dd 0
+	int386_r_esp    dd 0
+	int386_r_ebx    dd 0
+	int386_r_edx    dd 0
+	int386_r_ecx    dd 0
+	int386_r_eax    dd 0
+	int386_r_ds     dw 0 
+	int386_r_es     dw 0
+	int386_r_fs     dw 0
+	int386_r_gs     dw 0
+	int386_r_ss     dw 0
+	int386_r_eflags dd 0
+	int386_r_pad    dw 0
+
+use32
+int386_start:
+	cli
+	pusha
+	mov eax, esp
+	mov dword [get_base_address_int386(int386_esp)], eax
+	xor eax, eax
+	sidt [get_base_address_int386(int386_idt32)]
+	mov eax, cr0
+	and eax, ~0x80000000
+	mov cr0, eax
+	xor ecx, ecx
+	mov ebx, cr3
+	mov dword [get_base_address_int386(int386_cr3)], ebx	
+	mov cr3, ecx
+	jmp word CODE16_SEGMENT:get_base_address_int386(int386_pmode16)
+	
+int386_pmode16:
+use16
+	mov ax, DATA16_SEGMENT
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+	mov eax, cr0
+	and eax, ~0x01
+	mov cr0, eax
+	jmp word 0x00:get_base_address_int386(int386_rmode16)
+int386_rmode16:
+use16
+	xor ax, ax
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax	
+	lidt [get_base_address_int386(int386_idt16)]	
+	pushad
+	lea ax, [get_base_address_int386(int386_regs)]
+	mov sp, ax  
+	call pic_set_2
+	popad	
+	sti
+int386_int_rsrv: nop
+	nop
+	nop
+int386_int_instr: db 0xCD
+int386_int_no: db 0x00
+	cli
+	xor sp, sp
+	mov ss, sp
+	lea sp, [get_base_address_int386(int386_regs)+32]
+    pushad  
+	call pic_restore_2
+	lea sp, [get_base_address_int386(int386_regs)]
+	popad
+	mov sp, INT86_BASE_ADDRESS         
+	pushf
+	mov eax, cr0
+	inc eax
+	mov cr0, eax
+	jmp dword CODE_SEGMENT:get_base_address_int386(int386_pmode32)
+
+int386_pmode32:
+use32
+	mov ax, DATA_SEGMENT
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+	mov eax, dword [get_base_address_int386(int386_esp)]
+	mov esp, eax
+	lidt [get_base_address_int386(int386_idt32)]    
+	mov ebx, dword [get_base_address_int386(int386_cr3)]
+	mov cr3, ebx
+	mov eax, cr0
+	or eax, 0x80000000
+	mov cr0, eax
+	popa                                   
+	sti                                    
+	ret           
+
+pic_set_2:
+	mov  bx, 0x0870
+	call pic_reset_2
+	ret
+		
+pic_restore_2:
+	mov  bx, 0x2028
+	call pic_reset_2
+	ret
+	
+pic_reset_2:
+	push ax
+	mov  al, 0x11 
+	out  0x20, al  
+	out  0xA0, al  
+	mov  al, bh    
+	out  0x21, al  
+	mov  al, bl     
+	out  0xA1, al         
+	mov  al, 0x04  
+	out  0x21, al     
+	shr  al, 1   
+	out  0xA1, al     
+	shr  al, 1                
+	out  0x21, al                  
+	out  0xA1, al                  
+	pop  ax                           
+	ret
+
+int386_esp:
+	dd 0x00000000
+
+int386_cr3:
+	dd 0x00000000
+
+int386_idt16:                                 
+	dw 0x03FF
+	dd 0x00000000
+	
+int386_idt32:                                 
+	dw 0x0000
+	dd 0x00000000
+
+use32
+
+int386_end:
 
 
 
