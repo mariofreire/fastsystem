@@ -2895,9 +2895,9 @@ file_entry_t *readdir_entry(unsigned char *dir_ptr)
 	if (!isfattype()) return  NULL;
 	if (filecount < 0) return NULL;
 	if (filecount >= totalfiles) return NULL;
-	if (entry->name == NULL) return NULL;
 	readdir_entries = (file_entry_t*)&dir_ptr[4];
 	entry = (file_entry_t*)&readdir_entries[filecount];
+	if (entry->name == NULL) return NULL;
 	filecount++;
 	dir_ptr[2] = UCHAR8A(filecount);
 	dir_ptr[3] = UCHAR8B(filecount);
