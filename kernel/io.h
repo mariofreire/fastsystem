@@ -64,5 +64,6 @@ extern void outportw(unsigned short port, unsigned short value);
 extern void outportl(unsigned short port, unsigned long value);
 extern void sound(uint32_t freq);
 extern void nosound();
+extern unsigned long readsector(unsigned long sector, void *buffer);
 
 #endif // __IO_H__

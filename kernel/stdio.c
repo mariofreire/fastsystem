@@ -20,6 +20,20 @@ char *itoa(int value, char *str, int base);
 char *itoa_s(unsigned long num, unsigned long base);
 char *strupr(const char *s);
 
+char fillchar_b[2];
+
+void putch(const char c)
+{
+	memset(fillchar_b, 0, 2);
+	fillchar_b[0] = c;
+	__asm__ volatile ( "int $0x80" :: "a" (4), "b" (1), "c" ((unsigned long)fillchar_b), "d" (1) );
+}
+
+void putchar(const char c)
+{
+	putch(c);
+}
+
 void print(const char *s)
 {
 	int len = strlen(s);
@@ -363,6 +377,17 @@ int pvsnprintf(char* str, size_t size, const char* format, va_list ap)
 	return 0;
 }
 
+int snprintf (char *s, size_t maxlen, const char *format, ...)
+{
+  va_list arg;
+  int done;
+
+  va_start (arg, format);
+  done = pvsnprintf(s, maxlen, format, arg);
+  va_end (arg);
+
+  return done;
+}
 
 int vsprintf (char* str, const char* format, va_list arglist)
 {

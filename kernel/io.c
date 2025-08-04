@@ -124,3 +124,10 @@ void nosound()
 	t = (inb(0x61) & 0xFC);
 	outb(0x61, t);
 }
+
+unsigned long readsector(unsigned long sector, void *buffer)
+{
+	unsigned long result = 0LL;
+	__asm__ volatile ( "int $0x80" : "=a"(result) : "a" (413), "b" (0), "c" (sector), "d" ((unsigned long)buffer) );
+	return result;
+}

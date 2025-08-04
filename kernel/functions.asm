@@ -999,5 +999,7 @@ msg db 'Hello',0
 
 section .bss
 	resb 16384
+	global kernel_end_address
+	kernel_end_address:
 
 section .note.GNU-stack

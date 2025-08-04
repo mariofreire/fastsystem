@@ -6,7 +6,7 @@
 #ifndef __FSKRNL_H__
 #define __FSKRNL_H__
 
-
+#include "itypes.h"
 
 #define SYSTEM_ROOT_SECTOR                    0x9000
 #define SYSTEM_MBR_SECTOR                     0x8400
@@ -18,7 +18,6 @@
 #define SYSTEM_VESA_MODE_BUFFER               0x8A00
 #define SYSTEM_FAT32_FSINFO                   0x8C00
 #define SYSTEM_LOADER_KERNEL                  0xA000
-#define SYSTEM_EXTERNAL_KERNEL                0xC4B6000
 #define SYSTEM_KERNEL                         0xC000000
 #define SYSTEM_ADDRESS_VARIABLES              0x800000
 #define SYSTEM_ADDRESS_VARIABLES_INFO         0x808000
@@ -71,11 +70,6 @@
 
 #define SECTORSIZE 512
 
-#define TRUE 1
-#define FALSE 0
-#define true TRUE
-#define false FALSE
-
 #define PARTITION_ACTIVE 0x80
 #define PARTITION_INACTIVE 0x00
 
@@ -111,14 +105,6 @@
 
 #define FILE_NAME_DELETED 0xE5
 #define FILE_NAME_DIRECTORY 0x2E
-
-typedef unsigned char bool;
-
-typedef unsigned char BYTE;
-typedef unsigned short WORD;
-typedef unsigned long DWORD;
-typedef unsigned long long QWORD;
-
 
 #define INT86_BASE_ADDRESS 0x7C00
 
@@ -161,28 +147,6 @@ typedef unsigned long long QWORD;
 #define isalnum(c)                      (isalpha(c) || isnumber(c))
 #define issign(c)                      ((c == '-') || (c == '+') || (c == '*') || (c == '/') || (c == '='))
 #define isspecial(c)                      ((c == '\\') || (c == ';') || (c == '\'') || (c == '[') || (c == ']') || (c == ',') || (c == '.'))
-
-#define flagbit(value, index) ((value >> index) & ((1 << 1) - 1))
-
-#define UCHAR8A(value) ((unsigned char)(value))
-#define UCHAR8B(value) ((unsigned char)((value)>> 8))
-#define UCHAR8C(value) ((unsigned char)((value)>>16))
-#define UCHAR8D(value) ((unsigned char)((value)>>24))
-#define UINT16(a,b) ((unsigned long)((unsigned char)(a)|((unsigned char)(b)<<8)))
-#define UINT32(a,b,c,d) ((unsigned long)((unsigned char)(a)|((unsigned char)(b)<<8)|((unsigned char)(c)<<16)|((unsigned char)(d)<<24)))
-#define USHORT16(a,b) ((unsigned long)(((unsigned long)(a)<<16)|((unsigned short)(b))))
-
-
-#define HIGH16(a) ((unsigned short)(((a)>>16)&0xFFFF))
-#define LOW16(a) ((unsigned short)((a)&0xFFFF))
-
-
-
-
-typedef long unsigned int size_t;
-
-#define NULL 0LL
-
 
 
 
@@ -989,6 +953,9 @@ typedef struct
 #define HEAP_END   0x8000000 // 0x1800000
 #define ALLOC_SIZE_HEADER  8
 
+extern void kernel_end_address();
+
+#define SYSTEM_EXTERNAL_KERNEL                ((((unsigned long)kernel_end_address) & 0xFFFF000) + 0x1000)
 
 extern unsigned char *root_sector;
 
@@ -1108,8 +1075,7 @@ extern unsigned long pci_video_memory_address;
 
 extern int sys_vars_loaded;
 extern int sys_enum_loaded;
-
-
+extern unsigned long placement_address;
 
 extern void print_hex(unsigned short v);
 extern unsigned char getdrivenumber();
@@ -1129,8 +1095,14 @@ extern void pic_restore(void);
 
 void copy_function_to_base(void *function_base, unsigned long function_size, unsigned long new_base);
 
+unsigned long kmalloc_page();
+unsigned long kmalloc_int(unsigned long sz, int a, unsigned long *pa);
+unsigned long kmalloc_a(unsigned long sz);
+unsigned long kmalloc(unsigned long sz);
+
 void init_memory_map();
 void loadmmap();
+void loadmemmgr();
 void printmemory();
 unsigned long getavailablememorymap();
 unsigned long getreservedmemorymap();
@@ -1141,6 +1113,12 @@ unsigned char get_video_vesa_mode(unsigned short mode);
 unsigned char set_video_vesa_mode(unsigned short mode);
 unsigned char get_video_mode(void);
 void set_video_mode(unsigned short mode);
+unsigned char get_video_vesa_info(void);
+unsigned long get_video_vesa_buffer(unsigned short mode);
+unsigned char has_video_vesa_framebuffer(unsigned short mode);
+unsigned long get_vesa_pixel(int x, int y);
+void set_vesa_pixel(int x, int y, unsigned long c);
+unsigned long rgb(unsigned char r, unsigned char g, unsigned char b);
 
 void printk(const char *msg, ...);
 
@@ -1153,8 +1131,28 @@ void kernelmode_init(void);
 void presskey(void);
 int chdir(const char *path);
 
+void sputchar(char c);
+void cputchar(unsigned char a, char c);
+void cputs(unsigned char a, const char *s);
+void cputch(unsigned char a, const char c);
+void cprint(unsigned char a, const char *s);
+
 void putchar(const char c);
+void putch(const char c);
 void puts(const char *s);
+void print(const char *s);
+void print_int(int n);
+
+void clrscr(void);
+void gotoxy(int x, int y);
+
+unsigned char get_csi_color(unsigned char n, unsigned char c);
+void get_sgr_color(unsigned char sgr_code, unsigned char csi_code);
+void get_sgr_line_feed(unsigned char sgr_code, unsigned char csi_code);
+void get_sgr_cursor(unsigned char sgr_code, unsigned char csi_code);
+
+void tprint(const char *s);
+void tprintl(const char *s, unsigned long l);
 
 void strtrm(char *s1, char *s2);
 
@@ -1238,8 +1236,6 @@ unsigned long inl(unsigned short port);
 void outb(unsigned short port, unsigned char value);
 void outw(unsigned short port, unsigned short value);
 void outl(unsigned short port, unsigned long value);
-void msleep(unsigned int milliseconds);
-
 
 #define DMA_CHANNELS 8
 
@@ -1278,5 +1274,116 @@ void loadisr(void);
 void loadirq(void);
 void loadidt(void);
 
+void init_heap(void);
+
+unsigned short get_ds(void);
+unsigned long get_ebx(void);
+unsigned long get_ecx(void);
+unsigned long get_edx(void);
+unsigned long get_eax(void);
+unsigned long get_ebp(void);
+unsigned long get_esp(void);
+unsigned long get_edi(void);
+unsigned long get_esi(void);
+
+void createpageblank(void);
+void setpagedirs(void);
+void setpagetables(void);
+void flushpage(unsigned long addr);
+void loadpages(void);
+
+extern char *exception_messages[];
+
+extern void loadPageDirectory(unsigned long*);
+extern void enablePaging();
+extern void enablePSE();
+
+extern unsigned long kernel_start;
+extern unsigned long kernel_end;
+
+typedef void (*isr_t)(registers_t *);
+void register_interrupt_handler(unsigned char n, isr_t handler);
+
+extern isr_t interrupt_handlers[256];
+
+extern unsigned char kernelmode;
+extern unsigned char usermode;
+extern unsigned char enter_kernelmode;
+
+extern unsigned char restart_init;
+extern unsigned char shutdown_init;
+
+extern void halt(void);
+
+void reload_devices(void);
+
+void settss_entries(void);
+
+void msleep(unsigned int milliseconds);
+
+unsigned long getrootdirsector(void);
+unsigned char readsector(unsigned long sector, unsigned char *buffer);
+unsigned long get_total_files_size(unsigned long sector);
+
+unsigned char getdiskcount(void);
+
+unsigned char bios_sector_read(int id, void *buffer, unsigned long sector);
+
+void mouse_handler(registers_t *registers);
+
+int init_mouse(void);
+void getmouse(int *x, int *y, int *b);
+
+#define MOUSE_LEFT    0x01
+#define MOUSE_RIGHT   0x02
+#define MOUSE_MIDDLE  0x04
+
+#define PORT_KB_CMD            0x64
+#define PORT_KB_DATA           0x60
+
+#define MOUSE_CMD_BYTE         0xD4
+#define MOUSE_CMD_READ_BYTE    0x20
+#define MOUSE_CMD_WRITE_BYTE   0x60
+
+#define ENABLE_IRQ12     0x02
+
+#define MOUSE_RESET      0xFF
+#define MOUSE_SET_REMOTE 0xF0
+#define MOUSE_SET_STREAM 0xEA
+#define MOUSE_ENABLE     0xF4
+#define MOUSE_DISABLE    0xF5
+#define MOUSE_SET_RATE   0xF3
+#define MOUSE_GET_TYPE   0xF2
+
+typedef struct 
+{
+    signed char  dx, dy, dw;
+    unsigned char buttons;
+    unsigned char packet[4];
+    unsigned char phase;
+    unsigned char packet_size;
+    unsigned char ready;
+} mouse_state_t;
+
+int mouse_init(void);
+void mouse_set_rate(unsigned char rate);
+void mouse_input_handler(void);
+void mouse_uninit(void);
+
+signed char mouse_get_x(void);
+signed char mouse_get_y(void);
+signed char mouse_get_wheel(void);
+
+unsigned char mouse_get_buttons(void);
+
+signed char mouse_get_dx(void);
+signed char mouse_get_dy(void);
+signed char mouse_get_dw(void);
+
+int mouse_get_type(void);
+
+void irq12_handler(void);
+
+unsigned char kbhit(unsigned char key);
 
 #endif // __FSKRNL_H__

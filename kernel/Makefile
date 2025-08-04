@@ -3,7 +3,7 @@
 # $^ = all dependencies
 
 # First rule is the one executed when no parameters are fed to the Makefile
-all: fskrnl gen-vars write-vars boot put run
+all: libc.a fskrnl gen-vars write-vars boot put run
 
 # Notice how dependencies are built as needed
 fskrnl.elf: kernel_start.o fskrnl.o memory.o functions.o arith64.o
@@ -21,7 +21,7 @@ functions.o: functions.asm
 	nasm $< -f elf -o $@
 
 memory.o: memory.c
-	gcc -g -O0 -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -nostdlib -nostartfiles -m32 -c $< -o $@
+	gcc -g -Os -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -nostdlib -nostartfiles -m32 -c $< -o $@
 
 fskrnl.o: fskrnl.c
 	gcc -g -Os -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -nostdlib -nostartfiles -m32 -c $< -o $@
@@ -50,7 +50,7 @@ string.o: string.c
 errno.o: errno.c
 	gcc -m32 -nostdlib -nostartfiles -s -static -ffreestanding -fno-omit-frame-pointer -fno-builtin -fno-exceptions -fno-leading-underscore -fno-pie -fPIC -r -c $< -o $@
 
-libc.a: crt0.o io.o stdio.o stdlib.o string.o errno.o arith64.o
+libc.a: crt0.o io.o conio.o stdio.o stdlib.o string.o errno.o arith64.o
 	ar rcs $@ $^
 	
 testc.elf: testc.c
@@ -112,6 +112,7 @@ write-vars:
 
 clean:
 	rm -f fskrnl.sym fskrnl.debug fskrnl.elf kernel_start.o functions.o fskrnl.o fskrnl loader gen-vars gen-vars.o vars.bin vars-info.bin enum.bin enum-info.bin
+	rm -f *.o *.a
 
 boot:	
 	../boot/writeboot harddisk.img ../boot/boot.bin
@@ -119,6 +120,8 @@ boot:
 put:
 	./fput.sh harddisk.img ../kernel/fskrnl fskrnl
 	./fput.sh harddisk.img ../loader/loader loader
+	./fput.sh grub.img ../kernel/fskrnl fskrnl
+	./fput.sh grub.img ../loader/loader loader
 	./fput.sh grub.img ../kernel/fskrnl.elf boot/fskrnl.elf
 
 run:
@@ -165,3 +168,6 @@ run_grub:
 
 run_serial:
 	qemu-system-i386 -m 2048 -drive format=raw,media=disk,index=0,file=harddisk.img -device loader,addr=0x800000,file=../kernel/vars.bin -device loader,addr=0x808000,file=../kernel/vars-info.bin -device loader,addr=0x810000,file=../kernel/enum-serial.bin -device loader,addr=0x818000,file=../kernel/enum-info-serial.bin -serial tcp::12345,server -monitor stdio -nographic
+
+run_kernel_verbose:
+	qemu-system-i386 -m 2048 -drive format=raw,media=disk,index=0,file=harddisk.img -kernel fskrnl.elf -append "INIT=/init ROOT=/dev/hd1 MOUNT_POINT=/" -device loader,addr=0x810000,file=../kernel/enum-verbose.bin -device loader,addr=0x818000,file=../kernel/enum-info-verbose.bin
