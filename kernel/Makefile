@@ -171,4 +171,3 @@ run_serial:
 
 run_kernel_verbose:
 	qemu-system-i386 -m 2048 -drive format=raw,media=disk,index=0,file=harddisk.img -kernel fskrnl.elf -append "INIT=/init ROOT=/dev/hd1 MOUNT_POINT=/" -device loader,addr=0x810000,file=../kernel/enum-verbose.bin -device loader,addr=0x818000,file=../kernel/enum-info-verbose.bin
-
