@@ -18,7 +18,6 @@ unsigned char *vesa_info_buffer = (unsigned char *)SYSTEM_VESA_INFO_BUFFER;
 unsigned char *vesa_mode_buffer = (unsigned char *)SYSTEM_VESA_MODE_BUFFER;
 unsigned char *fat32_fsinfo = (unsigned char *)SYSTEM_FAT32_FSINFO;
 unsigned char *loader_kernel = (unsigned char *)SYSTEM_LOADER_KERNEL;
-unsigned char *external_kernel = (unsigned char *)SYSTEM_EXTERNAL_KERNEL;
 unsigned char *kernel = (unsigned char *)SYSTEM_KERNEL;
 unsigned char *system_variables = (unsigned char *)SYSTEM_ADDRESS_VARIABLES;
 unsigned char *system_variables_info = (unsigned char *)SYSTEM_ADDRESS_VARIABLES_INFO;
@@ -30,33 +29,8 @@ unsigned char *system_errno = (unsigned char *)SYSTEM_ADDRESS_ERRNO;
 unsigned char *system_memory_map_info = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP_INFO;
 unsigned char *system_memory_map = (unsigned char *)SYSTEM_ADDRESS_MEMORY_MAP;
 unsigned char *ahci_ptr = (unsigned char *)SYSTEM_AHCI_PTR;
+unsigned char *external_kernel;
 
-
-unsigned long page_directory[1024] __attribute__((aligned(4096)));
-unsigned long page_table[1024][1024] __attribute__((aligned(4096)));
-
-void * _heap_start;
-void * _heap_end;
-void * _heap_current;
-void * _heap_prev;
-
-unsigned long _heap_prev_position;
-unsigned long _heap_last_size_alloc;
-unsigned long _heap_last_position;
-unsigned long _heap_position;
-unsigned long _heap_size;
-unsigned long _heap_last_size;
-
-unsigned long _heap_alloc_last_clean_start;
-unsigned long _heap_alloc_last_clean_end;
-
-unsigned long _heap_alloc_available;
-
-unsigned long malloc_count = 0;
-unsigned long free_count = 0;
-
-unsigned long malloc_history[65536];
-unsigned long free_history[65536];
 
 dap_t* dap;
 mbr_t* mbr;
@@ -104,6 +78,14 @@ unsigned long pci_video_memory_address = 0;
 
 int sys_vars_loaded = 0;
 int sys_enum_loaded = 0;
+
+int keyboard_initialized = 0;
+int mouse_initialized = 0;
+
+int mouse_screen_width = 0, mouse_screen_height = 0;
+int saved_cursor_x = 0, saved_cursor_y = 0;
+
+unsigned char keys[256];
 
 extern void isr0();
 extern void isr1();
@@ -364,18 +346,6 @@ extern void isr253();
 extern void isr254();
 extern void isr255();
 
-void reload_devices(void);
-
-extern void halt(void);
-
-void settss_entries(void);
-
-void msleep(unsigned int milliseconds);
-
-unsigned long getrootdirsector(void);
-unsigned char readsector(unsigned long sector, unsigned char *buffer);
-unsigned long get_total_files_size(unsigned long sector);
-
 unsigned long ahci_hba_address = 0;
 ahci_hba_port_t *ahci_port;
 ahci_hba_memory_t *ahci_hba;
@@ -393,9 +363,6 @@ unsigned char restart_init = 0;
 unsigned char shutdown_init = 0;
 
 unsigned long multiboot_address = 0;
-
-typedef void (*isr_t)(registers_t *);
-void register_interrupt_handler(unsigned char n, isr_t handler);
 
 isr_t interrupt_handlers[256];
 
@@ -419,6 +386,8 @@ unsigned long int rand_next = 1;
 int syscall_excv_on = 0;
 int syscall_exit_on = 0;
 int kb_flush_require = 0;
+
+int screen_width, screen_height, screen_depth, screen_cols, screen_rows;
 
 char root_dev[256];
 char mount_p[256];
@@ -728,7 +697,7 @@ void gotoxy(int x, int y)
 	setcursor(current_text_x, current_text_y);
 }
 
-void clrscr(void)
+void clearscreen(void)
 {
 	int i;
 	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) return;
@@ -737,7 +706,19 @@ void clrscr(void)
 		vga_memory[i+0] = 0;
 		vga_memory[i+1] = toattr(TEXTCOLOR_DEFAULT, BLACK);
 	}
+}
+
+void cursorhome(void)
+{
+	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) return;
 	gotoxy(0, 0);
+}
+
+void clrscr(void)
+{
+	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) return;
+	clearscreen();
+	cursorhome();
 }
 
 unsigned short putchar_xy(int x, int y, const char c, unsigned char a) 
@@ -1228,6 +1209,96 @@ void get_sgr_color(unsigned char sgr_code, unsigned char csi_code)
 	}
 }
 
+void get_sgr_line_feed(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 2:
+		{
+			clearscreen();
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
+void get_sgr_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					cursorhome();
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			gotoxy(sgr_code, csi_code);
+		}
+		break;
+	}
+}
+
+void get_sgr_save_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					saved_cursor_x = wherex();
+					saved_cursor_y = wherey();
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
+void get_sgr_restore_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					gotoxy(saved_cursor_x, saved_cursor_y);
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
 void tprint(const char *s) 
 {
     while (*s != '\0') 
@@ -1260,10 +1331,35 @@ void tprint(const char *s)
                     }
                     sgr_code = number_code;
                 }
-                if (*s == 'm') 
+				switch(*s)
 				{
-                    get_sgr_color(sgr_code, csi_code);
-                }
+					case 'm':
+					{
+						get_sgr_color(sgr_code, csi_code);
+					}
+					break;
+					case 'J':
+					{
+						get_sgr_line_feed(sgr_code, csi_code);
+					}
+					break;
+					case 'H':
+					case 'f':
+					{
+						get_sgr_cursor(sgr_code, csi_code);
+					}
+					break;
+					case 's':
+					{
+						get_sgr_save_cursor(sgr_code, csi_code);
+					}
+					break;
+					case 'u':
+					{
+						get_sgr_restore_cursor(sgr_code, csi_code);
+					}
+					break;
+				};
             }
         } else 
 		{
@@ -1310,12 +1406,45 @@ void tprintl(const char *s, unsigned long l)
                     }
                     sgr_code = number_code;
                 }
-                if (*s == 'm') 
+				switch(*s)
 				{
-					print_status = 1;
-                    get_sgr_color(sgr_code, csi_code);
-					print_status = 0;
-                }
+					case 'm':
+					{
+						print_status = 1;
+						get_sgr_color(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'J':
+					{
+						print_status = 1;
+						get_sgr_line_feed(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'H':
+					case 'f':
+					{
+						print_status = 1;
+						get_sgr_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 's':
+					{
+						print_status = 1;
+						get_sgr_save_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'u':
+					{
+						print_status = 1;
+						get_sgr_restore_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+				};
             }
         } else 
 		{
@@ -1704,11 +1833,11 @@ void restart(void)
 	unsigned char restartcode;
 	restart_init = 1;
 	restartcode = 0x02;
+	printk("System Halted.\n");
 	disable_interrupt();
 	while (restartcode & 0x02)
 		restartcode = inb(0x64);
 	outb(0x64, 0xFE);
-	printk("System Halted.\n");
 	halt();
 }
 
@@ -1734,13 +1863,13 @@ void shutdown_int(void)
 void shutdown(void)
 {
 	shutdown_init = 1;
+	printk("System Halted.\n");
 	disable_interrupt();
 	outw(0xB004, 0x2000);
 	outw(0x604,  0x2000);
 	outw(0x4004, 0x3400);
 	outw(0x600,  0x34);
 	shutdown_int();
-	printk("System Halted.\n");
 	halt();
 }
 
@@ -1762,301 +1891,6 @@ int create_page_entry(int base_addr, char present, char writable,
     entry |= page_size << 7;
 
     return base_addr | entry;
-}
-*/
-
-extern unsigned long kernel_start;
-
-void createpageblank(void)
-{
-	int i;
-	for(i=0;i<1024;i++)
-	{
-		page_directory[i] = 0x02;
-	}
-}
-
-void setpagetables(void)
-{
-	int i,j;	 
-	unsigned long k=0;
-	for(i=0;i<1;i++)
-	{
-		for(j=0;j<1;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // IVT 0x0-0x400  0x0000-0xFFF
-			k++;
-		}
-		for(j=1;j<7;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 PAGE_SIZE-0x6FFF
-			k++;
-		}
-		for(j=7;j<10;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x7000-0x9FFF
-			k++;
-		}
-		for(j=10;j<16;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // LOADER KERNEL   0xA000-0xFFFF
-			k++;
-		}
-		for(j=16;j<160;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE;                 // KERNEL-RAM      PAGE_SIZE0-0x9FFFF
-			k++;
-		}
-		for(j=160;j<192;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     // VGA-RAM         0xA0000-0xBFFFF
-			k++;
-		}
-		for(j=192;j<256;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // BIOS-ROM        0xC0000-0xFFFFF
-			k++;
-		}
-		for(j=256;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x100000-0x3FFFFF
-			k++;
-		}
-	}
-	for(i=1;i<2;i++)
-	{
-		for(j=0;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x400000-0x7FFFFF
-			k++;
-		}
-	}
-	for(i=2;i<3;i++)
-	{
-		for(j=0;j<80;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // SYS_VARS        0x800000-0x84FFFF
-			k++;
-		}
-		for(j=80;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x850000-0xFFFFFF
-			k++;
-		}
-	}
-	for(i=3;i<48;i++)
-	{
-		for(j=0;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x1000000-0xBFFFFFF
-			k++;
-		}
-	}	
-	for(i=48;i<49;i++)
-	{
-		for(j=0;j<8;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // KERNEL          0xC000000-0xC008000
-			k++;
-		}
-		for(j=8;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0xC008000-*
-			k++;
-		}
-	}	
-	for(i=49;i<1024;i++)
-	{
-		for(j=0;j<1024;j++)
-		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;     //                 0x850000-*
-			k++;
-		}
-	}	
-}
-
-void setpagedirs(void)
-{	
-	int i;
-	for(i=0;i<1024;i++)
-	{
-		page_directory[i] = ((unsigned long)page_table[i]) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;  
-	}
-}
-
-unsigned long kmalloc(unsigned long size);
-unsigned long kmalloc_page();
-
-void flushpage(unsigned long addr) 
-{
-   __asm__ volatile("invlpg (%0)" ::"r" (addr) : "memory");
-}
-
-extern void loadPageDirectory(unsigned long*);
-extern void enablePaging();
-extern void enablePSE();
-
-
-extern unsigned long kernel_end;
-unsigned long placement_address = (unsigned long)&kernel_end;
-
-unsigned long kmalloc_int(unsigned long sz, int a, unsigned long *pa)
-{
-    if (a == 1 && (placement_address & 0xFFFFF000) )
-    {
-        placement_address &= 0xFFFFF000;
-        placement_address += PAGE_SIZE;
-    }
-    if (pa)
-    {
-        *pa = placement_address;
-    }
-    unsigned long m = placement_address;
-    placement_address += sz;
-    return m;
-}
-
-unsigned long kmalloc_a(unsigned long sz)
-{
-    return kmalloc_int(sz, 1, 0);
-}
-
-unsigned long kmalloc_ap(unsigned long sz, unsigned long *pa)
-{
-    return kmalloc_int(sz, 1, pa);
-}
-
-unsigned long kmalloc_p(unsigned long sz, unsigned long *pa)
-{
-    return kmalloc_int(sz, 0, pa);
-}
-
-unsigned long kmalloc(unsigned long sz)
-{
-    return kmalloc_int(sz, 0, 0);
-}
-
-extern char *exception_messages[];
-
-void page_fault(registers_t *registers)
-{
-	unsigned long exc = USHORT16(registers->int_no, registers->eip);
-	unsigned long faulting_address;
-	if (enter_kernelmode == 1) 
-	{
-		kernelmode_start();
-		shell_code_exit(0);
-		return;
-	}
-	__asm__ volatile ("mov %%cr2, %0" : "=r" (faulting_address));	
-	printk("Faulting address 0x%X\n", faulting_address);
-	printk("Exception at interrupt %d", registers->int_no);
-	if (registers->int_no < 32)
-	{
-		printk(": %s", exception_messages[registers->int_no]);
-	}
-	putch('\n');
-	panic(exc);
-	halt();
-    while(1);
-}
-
-#ifdef ONLY_C
-
-void load_page_directory(unsigned long *page_dir)
-{
-    __asm__ volatile("mov %0, %%cr3":: "r"(page_dir));
-}
-
-void enable_paging(void)
-{
-    unsigned long cr0;
-    __asm__ volatile("mov %%cr0, %0": "=r"(cr0));
-    cr0 |= 0x80000000; // Set paging bit
-    __asm__ volatile("mov %0, %%cr0":: "r"(cr0));	
-}
-
-void enable_pse(void)
-{
-    unsigned long cr4;
-    __asm__ volatile("mov %%cr4, %0": "=r"(cr4));
-    cr4 |= 0x00000010; // Set pse bit
-    __asm__ volatile("mov %0, %%cr4":: "r"(cr4));	
-}
-
-void enable_sse(void)
-{
-    unsigned long cr0, cr4;
-    __asm__ volatile("mov %%cr0, %0": "=r"(cr0));
-	cr0 &= 0xFFFB;
-    cr0 |= 2;
-    __asm__ volatile("mov %0, %%cr0":: "r"(cr0));
-    __asm__ volatile("mov %%cr4, %0": "=r"(cr4));
-    cr4 |= 1536;
-    __asm__ volatile("mov %0, %%cr4":: "r"(cr4));
-}
-
-#else
-
-extern void load_page_directory(unsigned long *page_dir);
-extern void enable_paging(void);
-extern void enable_pse(void);
-extern void enable_sse(void);
-
-#endif
-
-
-void loadpages(void)
-{
-	register_interrupt_handler(14, page_fault);	
-	disable_interrupt();
-	createpageblank();
-	setpagetables();	
-	setpagedirs();
-	load_page_directory(page_directory);	
-	flushpage((unsigned long)page_directory);
-	enable_pse();
-	enable_paging();	
-	enable_sse();
-	enable_interrupt();
-}
-
-
-/*
-void *get_physaddr(void *virtualaddr) 
-{
-    unsigned long pdindex = (unsigned long)virtualaddr >> 22;
-    unsigned long ptindex = (unsigned long)virtualaddr >> 12 & 0x03FF;
- 
-    unsigned long *pd = (unsigned long *)0xFFFFF000;
-    // Here you need to check whether the PD entry is present.
- 
-    unsigned long *pt = ((unsigned long *)0xFFC00000) + (0x400 * pdindex);
-    // Here you need to check whether the PT entry is present.
- 
-    return (void *)((pt[ptindex] & ~0xFFF) + ((unsigned long)virtualaddr & 0xFFF));
-}
-
-void map_page(void *physaddr, void *virtualaddr, unsigned int flags) 
-{
-    // Make sure that both addresses are page-aligned.
- 
-    unsigned long pdindex = (unsigned long)virtualaddr >> 22;
-    unsigned long ptindex = (unsigned long)virtualaddr >> 12 & 0x03FF;
- 
-    unsigned long *pd = (unsigned long *)0xFFFFF000;
-    // Here you need to check whether the PD entry is present.
-    // When it is not present, you need to create a new empty PT and
-    // adjust the PDE accordingly.
- 
-    unsigned long *pt = ((unsigned long *)0xFFC00000) + (0x400 * pdindex);
-    // Here you need to check whether the PT entry is present.
-    // When it is, then there is already a mapping present. What do you do now?
- 
-    pt[ptindex] = ((unsigned long)physaddr) | (flags & 0xFFF) | 0x01; // Present
- 
-    // Now you need to flush the entry in the TLB
-    // or you might not notice the change.
 }
 */
 
@@ -2312,6 +2146,7 @@ void loadisr(void)
     setidt(30, (unsigned long)isr30, 0x08, 0x8E);
     setidt(31, (unsigned long)isr31, 0x08, 0x8E);
     setidt(65, (unsigned long)isr65, 0x08, 0x8E);
+    setidt(79, (unsigned long)isr79, 0x08, 0x8E);
     setidt(106, (unsigned long)isr106, 0x08, 0x8E);
     setidt(128, (unsigned long)isr128, 0x08, 0x8E);
 }
@@ -3222,11 +3057,17 @@ void irq_handler(registers_t *registers)
 	outb(0x20, 0x20);
 }
 
+void resetkeys(void)
+{
+	for(int i=0;i<256;i++) keys[i] = 0;
+}
+
 volatile unsigned long timertick = 0;
 
 void timer_handler(registers_t *registers)
 {
 	timertick++;
+	resetkeys();
 }
 
 void reset_timer(void)
@@ -3325,13 +3166,44 @@ unsigned char get_serial_code(void)
 	return inb(0x3F8);
 }
 
+void set_ps2_port2(unsigned char enabled)
+{
+	// Wait until input buffer is empty
+	while ((inb(0x64) & 0x02) != 0);
+
+	// Send command: Write Controller Command Byte
+	outb(0x64, 0x60);
+
+	// Read current config byte, modify it, then write back
+	uint8_t config = inb(0x60);  // Read current config
+	
+	if (enabled == 1)
+	{
+		// Set bit 5 to enable the second PS/2 port
+		config &= ~(1 << 5);  // Clear bit 5
+	}
+	else
+	{
+		// Set bit 5 to disable the second PS/2 port
+		config |= (1 << 5);  // Bit 5: If set, disables Port 2
+	}
+
+	// Wait again for buffer to be empty
+	while ((inb(0x64) & 0x02) != 0);
+
+	// Write modified config byte back
+	outb(0x60, config);
+}
+
 unsigned char get_key_code(void)
 {
 	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) 
 	{		
 		return get_serial_code();
 	}
-	return inb(0x60);
+	uint8_t c;
+	c = inb(0x60);
+	return c;
 }
 
 unsigned char get_key_status(void)
@@ -3340,7 +3212,9 @@ unsigned char get_key_status(void)
 	{
 		return 0x01;
 	}
-	return inb(0x64);
+	uint8_t c;
+	c = inb(0x64);
+	return c;
 }
 
 void keyboard_handler(registers_t *registers)
@@ -3461,6 +3335,7 @@ void key_handler(unsigned char key, unsigned char status, unsigned char shift, u
 
 void init_keyboard(void)
 {	
+    resetkeys();
 	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) 
 	{
 		memset(key_handlers, 0, MAXKEYSHANDLERS * sizeof(key_handler_t));
@@ -3487,6 +3362,8 @@ void init_keyboard(void)
 	msleep(10);
 	set_keyboard_led(1,0,0);
 	msleep(10);
+	resetkeys();
+	keyboard_initialized = 1;
 }
 
 void msleep(unsigned int milliseconds)
@@ -4296,6 +4173,22 @@ void syscall_handler(registers_t *registers)
 			__asm__ ("hlt");
 		}
 		break;
+		case 3:
+		{
+			//sys_read
+			if (arg1 == 0)
+			{
+				enable_interrupt();
+				char *buffer_ptr = (char*)arg2;
+				int i=0;
+				while(i < arg3)
+				{
+					buffer_ptr[i] = getch();
+					i++;
+				}
+			}
+		}
+		break;
 		case 4:
 		{
 			//sys_write
@@ -4434,6 +4327,12 @@ void syscall_handler(registers_t *registers)
 			pci_write_long(_pci_bus, _pci_slot, _pci_func, _pci_offset, _pci_data);
 		}
 		break;
+		case 413:
+		{
+			enable_interrupt();
+			registers->eax = (unsigned long)readsector(arg2,(void*)arg3);
+		}
+		break;
 		case 424:
 		{
 			registers->eax = get_video_mode();
@@ -4447,8 +4346,166 @@ void syscall_handler(registers_t *registers)
 			register_interrupt_handler(int_n, (isr_t)int_b);
 		}
 		break;
+		case 506:
+		{
+			unsigned char disk_count = getdiskcount();
+			registers->edx = disk_count;
+		}
+		break;
+		case 507:
+		{
+			enable_interrupt();
+			registers->eax = getch();
+		}
+		break;
+		case 508:
+		{
+			/*
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 0;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+			*/
+			registers->eax = mouse_initialized;
+		}
+		break;
+		case 509:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 1;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+		}
+		break;
+		case 510:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 2;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+		}
+		break;
+		case 511:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 3;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+			registers->ebx = r.bx;
+			registers->ecx = r.cx;
+			registers->edx = r.dx;
+		}
+		break;
+		case 512:
+		{
+			int m_x = 0;
+			int m_y = 0;
+			int m_b = 0;
+			getmouse(&m_x, &m_y, &m_b);
+			registers->ecx = m_x;
+			registers->edx = m_y;
+			registers->ebx = m_b;
+		}
+		break;
+		case 513:
+		{
+			registers->eax = init_mouse();
+		}
+		break;
+		case 514:
+		{
+			disable_interrupt();
+			register_interrupt_handler(IRQ12, 0);
+			mouse_uninit();
+			enable_interrupt();
+			/*
+			if (keyboard_initialized == 1)
+			{
+				init_keyboard(); // restore keyboard
+			}
+			*/
+		}
+		break;
+		case 515:
+		{
+			mouse_screen_width = arg2;
+			mouse_screen_height = arg3;
+		}
+		break;	
+		case 516:
+		{
+			registers->eax = kbhit(arg3);
+		}
+		break;
 	};
 }
+
+void int33_handler(registers_t *registers)
+{
+	unsigned long x = registers->eax;
+	unsigned long arg1 = registers->ebx;
+	unsigned long arg2 = registers->ecx;
+	unsigned long arg3 = registers->edx;
+	
+	switch(x)
+	{
+		case 0:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 0;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+		}
+		break;
+		case 1:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 1;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+		}
+		break;
+		case 2:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 2;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+		}
+		break;
+		case 3:
+		{
+			registers16_t r;
+			memset(&r, 0, sizeof(registers16_t));
+			r.ax = 3;
+			int86(0x33, &r, &r);
+			registers->eax = r.ax;
+			registers->ebx = r.bx;
+			registers->ecx = r.cx;
+			registers->edx = r.dx;
+		}
+		break;
+		case 4:
+		{
+			int m_x = 0;
+			int m_y = 0;
+			int m_b = 0;
+			getmouse(&m_x, &m_y, &m_b);
+			registers->ecx = m_x;
+			registers->edx = m_y;
+			registers->ebx = m_b;
+		}
+		break;
+	};
+}
+
 
 
 void int10_handler(registers_t *reg)
@@ -4488,236 +4545,83 @@ void int10_handler(registers_t *reg)
 	};
 }
 
+void int4f_handler(registers_t *registers)
+{
+	unsigned long x = registers->eax;
+	unsigned long arg1 = registers->ebx;
+	unsigned long arg2 = registers->ecx;
+	unsigned long arg3 = registers->edx;
+	
+	switch(x)
+	{
+		case 1:
+		{
+			registers->eax = get_video_mode();
+		}
+		break;
+		case 2:
+		{
+			set_video_mode(arg1);
+		}
+		break;
+		case 3:
+		{
+			registers->eax = get_video_vesa_mode(arg1);
+			registers->edx = (unsigned long)vesa_mode;			
+		}
+		break;
+		case 4:
+		{
+			set_video_vesa_mode(arg1);
+		}
+		break;
+		case 5:
+		{
+			registers->eax = get_video_vesa_info();
+			registers->edx = (unsigned long)vesa_info;
+		}
+		break;
+		case 6:
+		{
+			registers->eax = get_video_vesa_buffer(arg1);
+		}
+		break;
+		case 7:
+		{
+			registers->eax = has_video_vesa_framebuffer(arg1);
+		}
+		break;
+		case 8:
+		{
+			registers->eax = get_vesa_pixel(arg1, arg2);
+		}
+		break;
+		case 9:
+		{
+			set_vesa_pixel(arg1, arg2, arg3);
+		}
+		break;
+		case 10:
+		{
+			registers->eax = rgb(arg1, arg2, arg3);
+		}
+		break;
+	};
+}
+
+
 
 void init_interrupts(void)
 {
 	//register_interrupt_handler(0x13, int13_handler);
 	
-	// register_interrupt_handler(0x0d, protection_fault_handler);
+	// register_interrupt_handler(0x0d, protection_fault_handler);	
 	register_interrupt_handler(0x41, int41_handler);
+	register_interrupt_handler(0x4f, int4f_handler);
 	register_interrupt_handler(0x6a, int6a_handler);
 	register_interrupt_handler(0x80, syscall_handler);
 	
 }
-
-void init_heap(void)
-{
-	_heap_last_size_alloc = 0;
-	_heap_position = HEAP_START + PAGE_SIZE + ALLOC_SIZE_HEADER;
-	_heap_last_position = _heap_position;
-	_heap_start = (void*)HEAP_START;
-	_heap_end = (void*)HEAP_END;
-	_heap_current = (void*)_heap_position;
-	_heap_size = HEAP_END-HEAP_START;
-	_heap_last_size = _heap_size;
-	_heap_alloc_last_clean_start = 0;
-	_heap_alloc_last_clean_end = 0;
-	_heap_alloc_available = 0;
-}
-
-void *get_ptr(unsigned long offset)
-{
-	return ((void*)offset);
-}
-
-unsigned long get_addr(void *ptr)
-{
-	return ((unsigned long)ptr);
-}
-
-void *sbrk(size_t len)
-{
-	unsigned long addr;
-	addr = get_addr(_heap_current);
-	_heap_current += len;
-	_heap_last_size -= len;
-	//memset(get_ptr(addr), 0, len);
-	return get_ptr(addr);
-}
-
-void *malloc(size_t size)
-{
-	unsigned char *alloc_header;
-	unsigned long alloc_pos;
-	unsigned long alloc_size;
-	union hdr {
-		struct
-		{
-			unsigned char d[4];
-		};
-		struct
-		{
-			unsigned long l;
-		};
-	};
-	union hdr pos;
-	union hdr siz;
-	if ((_heap_alloc_available) >= info->physical_memory) 
-	{
-		panic(0);
-		return NULL;
-	}
-	if (_heap_last_position < ((HEAP_START + PAGE_SIZE) - ALLOC_SIZE_HEADER)) return NULL;
-	if (_heap_last_position >= (HEAP_END-ALLOC_SIZE_HEADER)) return NULL;
-	if (size == 0) return NULL;
-	_heap_position += _heap_last_size_alloc+ALLOC_SIZE_HEADER;
-	alloc_pos = _heap_position;
-	alloc_size = size;
-	alloc_header = (unsigned char*)_heap_current-ALLOC_SIZE_HEADER;
-	if ((size-_heap_last_size_alloc) < 0)
-	{
-		*alloc_header++ = UCHAR8A(alloc_pos);
-		*alloc_header++ = UCHAR8B(alloc_pos);
-		*alloc_header++ = UCHAR8C(alloc_pos);
-		*alloc_header++ = UCHAR8D(alloc_pos);
-		*alloc_header++ = UCHAR8A(alloc_size);
-		*alloc_header++ = UCHAR8B(alloc_size);
-		*alloc_header++ = UCHAR8C(alloc_size);
-		*alloc_header++ = UCHAR8D(alloc_size);
-	} else
-	{
-		pos.l = alloc_pos;
-		siz.l = alloc_size;
-		for(int i=0;i<4;i++) alloc_header[i] = pos.d[i];
-		for(int i=0;i<4;i++) alloc_header[4+i] = siz.d[i];
-	}
-	_heap_prev = sbrk(_heap_last_size_alloc+ALLOC_SIZE_HEADER);
-	_heap_prev_position = get_addr(_heap_prev);
-	_heap_last_size_alloc = size;
-	_heap_last_position += _heap_last_size_alloc+ALLOC_SIZE_HEADER;
-	_heap_alloc_available += size;
-	if (_heap_prev_position == 0) 
-	{
-		panic(_heap_prev_position);
-		return NULL;
-	}
-	if (_heap_current == 0) 
-	{
-		panic(get_addr(_heap_current));
-		return NULL;
-	}
-	if (_heap_last_size < HEAP_START)
-	{
-		panic(_heap_last_size);
-		return NULL;
-	}
-	if (malloc_count < 65536) 
-	{
-		malloc_history[malloc_count] = size;
-		malloc_count++;
-	}
-	else 
-	{
-		malloc_count = 0;
-		malloc_history[malloc_count] = size;
-		malloc_count++;
-	}
-	unsigned long limit = info->physical_memory-1;
-	if ((_heap_alloc_available) >= limit) 
-	{
-		unsigned long current_esp = get_esp();
-		/*
-		if (malloc_count != 0)
-		{
-			printk("size: %d, %d, esp: 0x%X, limit %d, count %d\n", malloc_history[malloc_count-1], free_history[free_count-1], current_esp, limit, malloc_count-1);
-			printk("at %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ );
-		}
-		*/
-		panic(current_esp);
-		return NULL;
-	}
-	
-	return _heap_current;//-ALLOC_SIZE_HEADER;
-}
-
-void free(void *ptr)
-{
-	static unsigned char *alloc_ptr;
-	const unsigned char *alloc_header;
-	unsigned long alloc_pos;
-	unsigned long alloc_size;
-	union hdr {
-		struct
-		{
-			unsigned char d[4];
-		};
-		struct
-		{
-			unsigned long l;
-		};
-	};
-	union hdr pos;
-	union hdr siz;
-	alloc_ptr = (unsigned char*)ptr;
-	alloc_header = (unsigned char*)ptr-ALLOC_SIZE_HEADER;
-	unsigned char pos_a = *alloc_header++;
-	unsigned char pos_b = *alloc_header++;
-	unsigned char pos_c = *alloc_header++;
-	unsigned char pos_d = *alloc_header++;
-	unsigned char siz_a = *alloc_header++;
-	unsigned char siz_b = *alloc_header++;
-	unsigned char siz_c = *alloc_header++;
-	unsigned char siz_d = *alloc_header++;
-	alloc_pos = UINT32(pos_a, pos_b, pos_c, pos_d);
-	alloc_size = UINT32(siz_a, siz_b, siz_c, siz_d);
-	_heap_alloc_available -= alloc_size;
-	_heap_last_size += alloc_size;
-	if (free_count < 65536) 
-	{
-		free_history[free_count] = alloc_size;
-		free_count++;
-	}
-	else 
-	{
-		free_count = 0;
-		free_history[free_count] = alloc_size;
-		free_count++;
-	}
-	if (_heap_last_size > _heap_size)
-	{
-		panic(_heap_last_size);
-		return;
-	}
-	
-	unsigned long limit = info->physical_memory-1;
-	if ((_heap_alloc_available) >= limit) 
-	{
-		/*
-		if (free_count != 0)
-		{
-			printk("size: %d, %d, esp: 0x%X, limit %d, count %d\n", malloc_history[malloc_count-1], free_history[free_count-1], get_esp(), limit, malloc_count);
-			printk("at %s %d %s\n", __FILE__, __LINE__, __FUNCTION__ );
-		}
-		*/
-		panic(0);
-		return;
-	}
-	
-	if (alloc_size == 0 || alloc_pos == 0)
-	{
-		for(int i=0;i<4;i++) pos.d[i] = alloc_header[i];
-		for(int i=0;i<4;i++) siz.d[i] = alloc_header[i+4];
-		alloc_pos = pos.l;
-		alloc_size = siz.l;
-	}
-	//print_int(alloc_size);
-	//putch('\n');
-	int i;
-	i = 0;
-	while(i < alloc_size+ALLOC_SIZE_HEADER)
-	{
-		if (*alloc_ptr == 0) break;
-		*alloc_ptr++ = 0;
-		alloc_ptr--;
-		i++;
-	};
-	//_heap_current -= alloc_size;
-	//_heap_position -= alloc_size;
-	_heap_alloc_last_clean_start = alloc_pos;
-	_heap_alloc_last_clean_end = alloc_pos+alloc_size;
-}
-
-
 
 const unsigned short ata_base[4] =
 {
@@ -5089,15 +4993,15 @@ void set_video_mode(unsigned short mode)
 unsigned char get_video_vesa_info(void)
 {
 	unsigned char result;
-	registers16_t regs;
+	registers32_t regs;
 	memset(vesa_info_buffer, 0, 512);
-	memset(&regs, 0, sizeof(registers16_t));
-	regs.ax = 0x4F00;
+	memset(&regs, 0, sizeof(registers32_t));
+	regs.eax = 0x4F00;
 	regs.es = 0;
-	regs.di = (unsigned long)vesa_info_buffer;
-	int86(0x10, &regs, &regs);
+	regs.edi = (unsigned long)vesa_info_buffer;
+	int386(0x10, &regs, &regs);
 	vesa_info = (vesa_info_t*)vesa_info_buffer;
-	if (regs.ax == 0x4F)
+	if (regs.eax == 0x4F)
 	{
 		result = 1;
 	}
@@ -5111,17 +5015,17 @@ unsigned char get_video_vesa_info(void)
 unsigned char get_video_vesa_mode(unsigned short mode)
 {
 	unsigned char result;
-	registers16_t regs, regs_out;
+	registers32_t regs, regs_out;
 	memset(vesa_mode_buffer, 0, 256);
-	memset(&regs, 0, sizeof(registers16_t));
-	memset(&regs_out, 0, sizeof(registers16_t));
-	regs.ax = 0x4F01;
-	regs.cx = mode;
+	memset(&regs, 0, sizeof(registers32_t));
+	memset(&regs_out, 0, sizeof(registers32_t));
+	regs.eax = 0x4F01;
+	regs.ecx = mode;
 	regs.es = 0;
-	regs.di = (unsigned long)vesa_mode_buffer;
-	int86(0x10, &regs, &regs_out);
+	regs.edi = (unsigned long)vesa_mode_buffer;
+	int386(0x10, &regs, &regs_out);
 	vesa_mode = (vesa_mode_t*)vesa_mode_buffer;
-	if (regs_out.ax == 0x4F)
+	if (regs_out.eax == 0x4F)
 	{
 		result = 1;
 	}
@@ -5137,13 +5041,13 @@ unsigned char set_video_vesa_mode(unsigned short mode)
 	unsigned short m_attrib;
 	unsigned long video_addr;
 	unsigned char result;
-	registers16_t regs_in, regs_out;
-	memset(&regs_in, 0, sizeof(registers16_t));
-	memset(&regs_out, 0, sizeof(registers16_t));
-	regs_in.ax = 0x4F02;
-	regs_in.bx = mode;
-	int86(0x10, &regs_in, &regs_out);
-	if (regs_out.ax == 0x4F)
+	registers32_t regs_in, regs_out;
+	memset(&regs_in, 0, sizeof(registers32_t));
+	memset(&regs_out, 0, sizeof(registers32_t));
+	regs_in.eax = 0x4F02;
+	regs_in.ebx = mode;
+	int386(0x10, &regs_in, &regs_out);
+	if (regs_out.eax == 0x4F)
 	{
 		if (get_video_vesa_mode(mode))
 		{
@@ -5295,6 +5199,62 @@ unsigned char has_video_vesa_framebuffer(unsigned short mode)
 	video_mode = tmp_mode;
 
 	return result;
+}
+
+unsigned long get_vesa_pixel(int x, int y)
+{
+	unsigned long c = 0;
+	if (!has_vesa) return 0;
+	if (!has_vesa_mode) return 0;
+	if (x < 0) return 0;
+	if (y < 0) return 0;
+	if (x >= vesa_mode->width) return 0;
+	if (y >= vesa_mode->height) return 0;
+
+	switch (vesa_mode->depth)
+	{
+		case 1:
+		{
+			c = (unsigned char)(video_memory[xyoffset(x,y,vesa_mode->scan_line_size)] & 0x01);
+		};
+		break;
+		case 2:
+		{
+			c = (unsigned char)(video_memory[xyoffset(x,y,vesa_mode->scan_line_size)] & 0x03);
+		};
+		break;
+		case 4:
+		{
+			c = (unsigned char)(video_memory[xyoffset(x,y,vesa_mode->scan_line_size)] & 0x0F);
+		};
+		break;
+		case 8:
+		{
+			c = (unsigned char)(video_memory[xyoffset(x,y,vesa_mode->scan_line_size)] & 0xFF);
+		};
+		break;
+		case 16:
+		{
+			c = (unsigned short)(*(unsigned long *)(video_memory + xyoffset16(x, y, vesa_mode->scan_line_size)) & 0xFFFF);
+		};
+		break;
+		case 24:
+		{
+			c = (unsigned long)(*(unsigned long *)(video_memory + xyoffset24(x, y, vesa_mode->scan_line_size)) & 0xFFFFFF);
+		};
+		break;
+		case 32:
+		{
+			c = (unsigned long)(*(unsigned long *)(video_memory + xyoffset32(x, y, vesa_mode->scan_line_size)));
+		};
+		break;
+		default:
+		{
+			return 0;
+		}
+		break;
+	};
+
 }
 
 void set_vesa_pixel(int x, int y, unsigned long c)
@@ -5641,10 +5601,42 @@ void sh_keydown(unsigned char key, unsigned char status, unsigned char shift, un
 	}
 }
 
+void kb_keydown(unsigned char key, unsigned char status, unsigned char shift, unsigned char scancode)
+{
+	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) 
+	{
+		return;
+	}
+	if (status & 0x01)
+	{
+		if (scancode & 0x80)
+		{
+			keys[key] = 0;
+		}
+		else
+		{
+			keys[key] = 1;
+		}
+	} else 
+	{
+		keys[key] = 0;
+	}
+}
 
 void init_keys(void)
 {
 	register_key_handler(sh_keydown);
+	register_key_handler(kb_keydown);
+}
+
+unsigned char kbhit(unsigned char key)
+{
+	if (keys[key] == 1) 
+	{
+		keys[key] = 0;
+		return 1;
+	}
+	return 0;
 }
 
 
@@ -6051,6 +6043,16 @@ void printk(const char *msg, ...)
 	//cprint(TEXTCOLOR_DEFAULT, msgBuf);
 }
 
+unsigned char getdiskcount(void)
+{
+	unsigned char disk_count = 0;
+	registers16_t regs;
+	regs.ax = 0x0800;
+	regs.dx = 0x80;
+	int86(0x13, &regs, &regs);
+	disk_count = UCHAR8A(regs.dx);
+	return disk_count;
+}
 
 int init_ahci(void)
 {
@@ -6505,13 +6507,13 @@ unsigned char disk_read(unsigned char drive, dap_t *dapack)
 {
 	unsigned char result;
 	unsigned char carry;
-	registers16_t regs;
-	regs.ax = 0x4200;
-	regs.dx = (unsigned char)(drive & 0xFF);
+	registers32_t regs;
+	regs.eax = 0x4200;
+	regs.edx = (unsigned char)(drive & 0xFF);
 	regs.ds = 0;
-	regs.si = (unsigned long)dapack;
-	int86(0x13, &regs, &regs);
-	carry = flagbit(regs.flags, 0);
+	regs.esi = (unsigned long)dapack;
+	int386(0x13, &regs, &regs);
+	carry = FLAGBIT(regs.eflags, 0);
 	result = 1-carry;
 	return result;
 }
@@ -6527,6 +6529,25 @@ void loaddap(void)
 	dap->lba_start_2 = 0;
 }
 
+unsigned char bios_sector_read(int id, void *buffer, unsigned long sector)
+{
+	unsigned char result;
+	unsigned char drive = (0x80 + id);
+	unsigned char *old_buffer = (unsigned char*)malloc(SECTORSIZE);
+	unsigned char *tmp_buffer = (unsigned char*)0x6400;
+	memcpy(old_buffer, tmp_buffer, SECTORSIZE);
+	memset(tmp_buffer, 0, SECTORSIZE);
+	dap = (dap_t*)disk_address_packet;
+	dap->lba_start_1 = sector;
+	dap->lba_start_2 = 0;
+	dap->sector_count = 1;
+	dap->buffer_ptr = (unsigned long)tmp_buffer;	
+	result = disk_read(drive, dap);	
+	memcpy(buffer, tmp_buffer, SECTORSIZE);
+	memcpy(tmp_buffer, old_buffer, SECTORSIZE);
+	free(old_buffer);
+	return result;
+}
 
 unsigned char sector_read(int id, void *buffer, unsigned long sector, int count)
 {
@@ -9538,6 +9559,35 @@ char *getcwd_sector(unsigned long sector)
 	return "/no-where";
 }
 
+float itof(int i)
+{
+ float f=0;
+ char c[4];
+
+ c[0] = i >> 24;
+ c[1] = i >> 16;
+ c[2] = i >> 8;
+ c[3] = i;
+
+ f = ((float*)c)[0];
+
+ return f;
+}
+
+int ftoi(float x)
+{
+    int i=0;
+    unsigned char c[4];
+    *(float*)c = x;
+
+    i = c[3];
+    i |= c[2] << 8;
+    i |= c[1] << 16;
+    i |= c[0] << 24;
+
+    return i;
+}
+
 void srand(unsigned int seed)
 {
     rand_next = seed;
@@ -9735,6 +9785,7 @@ void reload_devices(void)
 	init_timer(timer_frequency);
 	keyboard_restart();
 	keyboard_flush();
+	resetkeys();
 }
 
 unsigned long pci_config_address(unsigned char bus, unsigned char slot, unsigned char func, unsigned char offset)
@@ -10710,6 +10761,564 @@ void loaddma(void)
 }
 
 
+
+int get_string(int i, const char *tl, char *s, int lim)
+{
+    const char *t = tl;
+    const char *t1 = tl;
+    int l = 0;
+    int n = 0;
+    int total = 0;
+    int chk = 1;
+    int c_ln = 0;
+    int j;
+    while(chk)
+    {
+        if (total >= lim) return 0;
+        total++;
+        if (*t1 == '\0') 
+        {
+            c_ln++;
+            t1++;
+            if (*t1 == '\0') 
+            {
+                total += c_ln;
+                if (total >= lim) return 0;
+                chk = 0;
+            }
+        }
+        t1++;
+    }
+    while(n != i+1)
+    {
+        if (n > 0) 
+        {
+            j = 0;
+            while(j < l) 
+            {
+                s--;
+                j++;
+            }
+            t++;
+        }
+        l = 0;
+        while(*t != 0)
+        {
+            *s++ = *t++;
+            l++;
+        }
+        *s = '\0';
+        n++;
+    }
+    return c_ln;
+}
+
+int get_strings_count(const char *tl, int lim)
+{
+    const char *t = tl;
+	int total;
+    char *s = (char*)malloc(1024);
+    if (s == NULL) return 0;
+    memset(s, 0, 1024);
+    total = get_string(0, t, s, lim);
+	free(s);
+    return total;
+}
+
+int get_strings_length(const char *tl, int lim)
+{
+    const char *t = tl;
+	int i;
+	int l;
+	int total;
+    char *s = (char*)malloc(1024);
+    if (s == NULL) return 0;
+    memset(s, 0, 1024);
+    total = get_string(0, t, s, lim);
+    l = 0;
+    i = 0;
+    while(i < total)
+    {
+        memset(s, 0, 1024);
+        get_string(i, t, s, lim);
+        l += strlen(s);
+        i++;
+    }
+    free(s);
+    l += total;
+    return l;
+}
+
+int find_string(const char *tl, const char *s, int lim)
+{
+    const char *t = tl;
+	int i;
+	int total;
+	int found = 0;
+    char *s1 = (char*)malloc(1024);
+    if (s1 == NULL) return 0;
+    memset(s1, 0, 1024);
+    total = get_string(0, t, s1, lim);
+    i = 0;
+    while(i < total)
+    {
+        memset(s1, 0, 1024);
+        get_string(i, t, s1, lim);
+        if (strcmp(s1, s) == 0) found = 1;
+        i++;
+    }
+    free(s1);
+    return found;
+}
+
+int find_string_start(const char *tl, const char *s, int lim)
+{
+    const char *t = tl;
+	char *s1;
+	int i;
+	int total;
+	int sl;
+	int found = 0;
+	sl = strlen(s);
+	if (sl == 0) return 0;
+    s1 = (char*)malloc(1024);
+    if (s1 == NULL) return 0;
+    memset(s1, 0, 1024);
+    total = get_string(0, t, s1, lim);
+    i = 0;
+    while(i < total)
+    {
+        memset(s1, 0, 1024);
+        get_string(i, t, s1, lim);
+        if (strncmp(s1, s, sl) == 0) found = 1;
+        i++;
+    }
+    free(s1);
+    return found;
+}
+
+int add_string_m(const char *tl, const char *text, char *out, int lim)
+{
+    const char *t = tl;
+	char *s;
+    char *s2 = (char*)out;
+	int i;
+	int l;
+	int sn,sl,sl2,slt;
+	int total;
+	sn = 0;
+	sl = get_strings_length(tl, lim);
+	sl2 = strlen(text);
+	slt = sl+sl2+1;
+	if (slt == 0) return 0;
+	if (slt >= lim) return 0;
+    s = (char*)malloc(1024);
+    if (s == NULL) return 0;
+    memset(s, 0, 1024);
+    memset(s2, 0, lim);
+    total = get_string(0, t, s, lim);
+    i = 0;
+    while(i < total)
+    {
+        memset(s, 0, 1024);
+        get_string(i, t, s, lim);
+        sl = strlen(s);
+        if (sl > 0)
+        {
+            memcpy(s2+sn, s, sl);
+            sn += sl+1;
+        }
+        i++;
+    }
+    free(s);
+    memcpy(s2+sn, text, sl2);
+    l = get_strings_length(s2, lim);
+    return l;
+}
+
+int add_string(char *tl, const char *text, int lim)
+{
+	int l;
+	char *s = (char*)malloc(lim);
+	memset(s, 0, lim);
+	l = add_string_m(tl, text, s, lim);
+	memcpy(tl, s, l);
+	free(s);
+	return l;
+}
+
+void get_strings(const char *tl, char *sl, int lim)
+{
+    const char *t = tl;
+	int i;
+	int total;
+    char *s = (char*)malloc(1024);
+    if (s == NULL) return;
+    memset(s, 0, 1024);
+	memset(sl, 0, lim);
+    total = get_string(0, t, s, lim);
+    i = 0;
+    while(i < total)
+    {
+        memset(s, 0, 1024);
+        get_string(i, t, s, lim);
+		strcat(sl, s);
+		if (i < (total-1)) strcat(sl, "\n");
+        i++;
+    }
+    free(s);
+}
+
+int add_string_copy(const char *tl, const char *text, char *out, int lim)
+{
+	int l;
+	char *s2 = (char*)malloc(lim);
+	memset(s2, 0, lim);
+	l = add_string_m(tl, text, s2, lim);
+	memcpy(out, s2, l);
+	free(s2);
+	return l;
+}
+
+volatile int mouse_x = 0, mouse_y = 0, mouse_b = 0, mouse_w = 0;
+
+void getmouse(int *x, int *y, int *b)
+{
+	*x = mouse_x;
+	*y = mouse_y;
+	*b = mouse_b;
+}
+
+static void wait_input_ready_timeout(int timeout) 
+{
+	int t_cnt = timeout;
+	unsigned char d = 0;
+	do
+	{
+		d = inb(PORT_KB_CMD);
+	}
+    while (((d & 0x02) != 0) && ((--t_cnt) > 0));
+}
+
+static void wait_output_ready_timeout(int timeout) 
+{
+	int t_cnt = timeout;
+	unsigned char d = 0;
+	do
+	{
+		d = inb(PORT_KB_CMD);
+	}
+    while (((d & 0x01) == 0) && ((--t_cnt) > 0));
+}
+
+static void wait_input_ready(void) 
+{
+    while (inb(PORT_KB_CMD) & 0x02);
+}
+
+static void wait_output_ready(void) 
+{
+    while (!(inb(PORT_KB_CMD) & 0x01));
+}
+
+static void mouse_write(unsigned char cmd) 
+{
+    wait_input_ready();
+    outb(PORT_KB_CMD, MOUSE_CMD_BYTE);
+    wait_input_ready();
+    outb(PORT_KB_DATA, cmd);
+}
+
+static unsigned char mouse_read(void) 
+{
+    wait_output_ready();
+    return inb(PORT_KB_DATA);
+}
+
+static mouse_state_t mouse_state = {0};
+
+void mouse_input_handler(void) 
+{
+    unsigned char data = inb(PORT_KB_DATA);
+    switch (mouse_state.phase) {
+        case 0:
+            if (data & 0x08) {
+                mouse_state.packet[0] = data;
+                mouse_state.phase = 1;
+            }
+            break;
+        case 1:
+            mouse_state.packet[1] = data;
+            mouse_state.phase = 2;
+            break;
+        case 2:
+            mouse_state.packet[2] = data;
+            if (mouse_state.packet_size == 3) {
+                unsigned char st = mouse_state.packet[0];
+                int dx = (int)mouse_state.packet[1];
+                int dy = (int)mouse_state.packet[2];
+
+                if (st & 0x40) dx = 0;
+                if (st & 0x80) dy = 0;
+
+                mouse_state.dx = dx;
+                mouse_state.dy = dy;
+                mouse_state.buttons = st & 0x07;
+
+                mouse_state.phase = 0;
+            } else {
+                mouse_state.phase = 3;
+            }
+            break;
+        case 3:
+            mouse_state.packet[3] = data;
+            mouse_state.phase = 0;
+
+            unsigned char st = mouse_state.packet[0];
+            int dx = (int)mouse_state.packet[1];
+            int dy = (int)mouse_state.packet[2];
+            int dw = (int)mouse_state.packet[3];
+
+            if (st & 0x40) dx = 0;
+            if (st & 0x80) dy = 0;
+
+            int wheel = (dw >> 4) & 0x0F;
+            if (wheel & 0x08) wheel |= 0xF0;
+
+            mouse_state.dx = dx;
+            mouse_state.dy = dy;
+            mouse_state.dw = wheel;
+            mouse_state.buttons = st & 0x07;
+
+            break;
+    }
+}
+
+int mouse_init(void) 
+{
+    unsigned char status;
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0xAD);
+    wait_input_ready(); outb(PORT_KB_CMD, 0xA7);
+
+    while (inb(PORT_KB_CMD) & 0x01) inb(PORT_KB_DATA);
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0xA8);
+
+    wait_input_ready(); outb(PORT_KB_CMD, MOUSE_CMD_READ_BYTE);
+    wait_output_ready(); status = inb(PORT_KB_DATA);
+    status |= ENABLE_IRQ12;
+    wait_input_ready(); outb(PORT_KB_CMD, MOUSE_CMD_WRITE_BYTE);
+    wait_input_ready(); outb(PORT_KB_DATA, status);
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0xA8);
+
+    mouse_write(MOUSE_RESET);
+    if (mouse_read() != 0xFA) goto mouse_err;
+    if (mouse_read() != 0xAA) goto mouse_err;
+    if (mouse_read() != 0x00) goto mouse_err;
+
+    mouse_write(MOUSE_SET_REMOTE);
+    if (mouse_read() != 0xFA) goto mouse_err;
+
+    mouse_write(MOUSE_SET_RATE);
+    mouse_read(); mouse_write(200); mouse_read();
+    mouse_write(MOUSE_SET_RATE);
+    mouse_read(); mouse_write(100); mouse_read();
+    mouse_write(MOUSE_SET_RATE);
+    mouse_read(); mouse_write(80);  mouse_read();
+
+    mouse_write(MOUSE_GET_TYPE);
+    if (mouse_read() != 0xFA) goto mouse_err;
+    unsigned char dev_type = mouse_read();
+
+    if (dev_type == 0x03 || dev_type == 0x04) {
+        mouse_state.packet_size = 4;
+    } else {
+        mouse_state.packet_size = 3;
+    }
+
+    mouse_write(MOUSE_SET_STREAM);
+    if (mouse_read() != 0xFA) goto mouse_err;
+
+    mouse_write(MOUSE_ENABLE);
+    if (mouse_read() != 0xFA) goto mouse_err;
+
+    mouse_state.dx = mouse_state.dy = mouse_state.dw = 0;
+    mouse_state.buttons = 0;
+    mouse_state.phase = 0;
+    mouse_state.ready = true;
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0xAE);
+
+    return 0;
+
+mouse_err:
+    mouse_state.ready = false;
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0xAE);
+
+    return -1;
+}
+
+int mouse_init_test1(void) 
+{
+    unsigned char status;
+
+    wait_input_ready(); outb(PORT_KB_CMD, 0x20);
+
+    status = inb(PORT_KB_DATA);
+    status |= ENABLE_IRQ12;
+	outb(PORT_KB_CMD, MOUSE_CMD_WRITE_BYTE);
+	outb(PORT_KB_DATA, status);
+
+    outb(PORT_KB_CMD, 0xA8);
+
+    mouse_write(MOUSE_ENABLE);
+    if (mouse_read() != 0xFA) goto mouse_err;
+
+    mouse_state.dx = mouse_state.dy = mouse_state.dw = 0;
+    mouse_state.buttons = 0;
+    mouse_state.phase = 0;
+    mouse_state.ready = true;
+
+    return 0;
+
+mouse_err:
+    mouse_state.ready = false;
+    return -1;
+}
+
+void mouse_set_rate(unsigned char rate) 
+{
+    mouse_write(MOUSE_SET_RATE);
+    mouse_read();
+    mouse_write(rate);
+    mouse_read();
+}
+
+signed char mouse_get_x(void) {
+    return mouse_state.ready ? mouse_state.dx : 0;
+}
+
+signed char mouse_get_y(void) {
+    return mouse_state.ready ? mouse_state.dy : 0;
+}
+
+signed char mouse_get_wheel(void) {
+    return mouse_state.ready ? mouse_state.dw : 0;
+}
+
+unsigned char mouse_get_buttons(void) {
+    return mouse_state.ready ? mouse_state.buttons : 0;
+}
+
+signed char mouse_get_dx(void) {
+    signed char val = mouse_state.ready ? mouse_state.dx : 0;
+    if (mouse_state.ready) mouse_state.dx = 0;
+    return val;
+}
+
+signed char mouse_get_dy(void) {
+    signed char val = mouse_state.ready ? mouse_state.dy : 0;
+    if (mouse_state.ready) mouse_state.dy = 0;
+    return val;
+}
+
+signed char mouse_get_dw(void) {
+    signed char val = mouse_state.ready ? mouse_state.dw : 0;
+    if (mouse_state.ready) mouse_state.dw = 0;
+    return val;
+}
+
+int mouse_get_type(void) 
+{
+    if (!mouse_state.ready) return -1;
+
+    mouse_write(MOUSE_GET_TYPE);
+    if (mouse_read() != 0xFA) return -1;
+    return mouse_read();
+}
+
+void mouse_uninit(void) 
+{
+    if (!mouse_state.ready) return;
+    mouse_write(MOUSE_DISABLE);
+    mouse_read();
+    wait_input_ready(); outb(PORT_KB_CMD, MOUSE_CMD_READ_BYTE);
+    wait_output_ready();
+    unsigned char cmd = inb(PORT_KB_DATA);
+    cmd &= ~ENABLE_IRQ12;
+    wait_input_ready(); outb(PORT_KB_CMD, MOUSE_CMD_WRITE_BYTE);
+    wait_input_ready(); outb(PORT_KB_DATA, cmd);
+    wait_input_ready(); outb(PORT_KB_CMD, 0xA7);
+    mouse_state.ready = false;
+}
+
+void irq12_handler(void) 
+{
+    mouse_input_handler();
+}
+
+void mouse_handler(registers_t *registers)
+{
+	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) 
+	{	
+		return;
+	}
+	else
+	{
+		irq12_handler();
+		mouse_x += mouse_get_dx();
+		mouse_y -= mouse_get_dy();
+		mouse_w += mouse_get_dw();
+		mouse_b = mouse_get_buttons();
+		if (mouse_x < 0) mouse_x = 0;
+		if (mouse_y < 0) mouse_y = 0;
+		if (mouse_w < -20) mouse_w = -19;
+		if (mouse_x > mouse_screen_width) mouse_x = mouse_screen_width-1;
+		if (mouse_y > mouse_screen_height) mouse_y = mouse_screen_height-1;
+		if (mouse_w > 20) mouse_w = 19;
+	}
+}
+
+int init_mouse(void)
+{	
+	if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) 
+	{
+		register_interrupt_handler(IRQ12, 0);		
+		return 0;
+	}
+	else
+	{
+		mouse_x = 0;
+		mouse_y = 0;
+		mouse_b = 0;
+		mouse_screen_width = screen_width;
+		mouse_screen_height = screen_height;
+		disable_interrupt();
+		mouse_initialized = 1-mouse_init();
+		if (mouse_initialized)
+		{
+			register_interrupt_handler(IRQ12, mouse_handler);	
+			/*
+			if (keyboard_initialized == 1)
+			{
+				init_keyboard(); // restore keyboard
+			}
+			*/
+		}
+		else 
+		{
+			register_interrupt_handler(IRQ12, 0);	
+		}
+		enable_interrupt();
+	}
+	return mouse_initialized;
+}
+
+
+
 /*
 unsigned int fsallocsize(unsigned int n)
 {
@@ -11135,8 +11744,7 @@ int main(void)
 	char *cpu_id_name;
 	char *cpu_id_str;
 	char *cpu_brand_str;
-	int cpu_id_type, cpu_id_family, cpu_id_model, cpu_id_stepping;
-	int screen_width, screen_height, screen_depth, screen_cols, screen_rows;
+	int cpu_id_type, cpu_id_family, cpu_id_model, cpu_id_stepping;	
 	int video_addr, video_lfb, video_memory_size;
 	unsigned long root_sector_start;
 	unsigned long _heap_size_1, _heap_size_2, _heap_size_;
@@ -11179,6 +11787,7 @@ int main(void)
 	
 	init_timer(timer_frequency);
 	init_keyboard();
+	//init_mouse();
 	init_interrupts();
 	
 	init_heap();
@@ -11400,7 +12009,7 @@ int main(void)
 	
 	printk("\n");
 	printk("Fast System kernel loaded.\n");
-	printk("Build number: 1000.10, rev: 2025.02\n");
+	printk("Build number: 1000.11, rev: 2025.08\n");
 	printk("\n");
 	
 	printk("Loading DMA Configuration.\n");
@@ -11410,7 +12019,7 @@ int main(void)
 	loadsets();
 	
     printk("Loading Memory Manager.\n");	
-    loadmmap();
+    loadmemmgr();
 	
     //printk("\n");	
 	
@@ -11432,8 +12041,6 @@ int main(void)
 		switchtousermode();
 	}
 	
-	
-
 	char *info_str = (char*)malloc(512);
 	strcpy(info_str, "\nFast System Kernel Loader\n     Created by Mario Freire\n\nCopyright (C) 2025 DSP Interactive.\n");
 	printk(info_str);
@@ -11496,23 +12103,33 @@ int main(void)
 	}
 	reloadvars();
 	
-	char uuid1[37];
-	uuidv4(uuid1);
-	if (uuidv4_validate(uuid1))
+	char token[37];
+	uuidv4(token);
+	if (uuidv4_validate(token))
 	{
 		if (has_enum(SYSTEM_VERBOSE))
 		{
 			printk("\n");
-			printk("System Token ID: %s\n", uuid1);
+			printk("System Token ID: %s\n", token);
 			printk("\n");
 		}
 	}
 	else
 	{
-		panic((unsigned long)uuid1);
+		panic((unsigned long)token);
 	}
 	
-
+	
+	if ((enum_loaded) && (total_enum > 0) && ((has_enum(SYSTEM_VERBOSE)) && (has_enum(SYSTEM_DEBUG))))
+	{
+		if (is_external_kernel())
+		{
+			printk("External Kernel Command Line Address: 0x%X\n", SYSTEM_EXTERNAL_KERNEL);
+			printk("\n");
+		}
+	}
+	
+	
 	while(1)
 	{
 		if (current_sector_pwd == 0)
@@ -12125,6 +12742,41 @@ int main(void)
 						x_ptr[3] = v_ptr[3];
 						unsigned long x_val = (unsigned long)UINT32(x_ptr[0], x_ptr[1], x_ptr[2], x_ptr[3]);
 						printk("%s: 0x%X\n", argv[0], x_val);
+					}
+				}
+				else
+				if (strcmp(argv[0], "diskcount") == 0)
+				{
+					unsigned char disk_count = getdiskcount();
+					printk("Disk Count: %d\n", disk_count);
+				}
+				else
+				if (strcmp(argv[0], "diskread") == 0)
+				{
+					unsigned char disk_count = getdiskcount();
+					if (disk_count != 0)
+					{						
+						#ifdef USE_DAP
+							int disk_id = (argc > 1) ? atol(argv[1]) : 0;
+							if (disk_id < disk_count)
+							{
+								unsigned long disk_sector_start = (argc > 2) ? atol(argv[2]) : 0;
+								unsigned char sector_buffer[SECTORSIZE];
+								memset(sector_buffer, 0, SECTORSIZE);
+								bios_sector_read(disk_id, sector_buffer, disk_sector_start);
+								dump_hex(sector_buffer, SECTORSIZE);
+							}
+							else
+							{
+								printk("Has not disk %d found.\n", disk_id);
+							}
+						#else
+							printk("Has not DAP support mode in kernel.\n");
+						#endif						
+					}
+					else
+					{
+						printk("Has not disk.\n");
 					}
 				}
 				else
