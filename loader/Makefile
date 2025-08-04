@@ -34,6 +34,7 @@ arith64.o: arith64.c
 
 clean:
 	rm -f loader.sym loader.debug loader.elf loader_start.o functions.o loader.o loader
+	rm -f *.o *.a
 
 boot:
 	../boot/writeboot harddisk.img ../boot/boot.bin
