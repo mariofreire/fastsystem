@@ -60,4 +60,3 @@ run_debug:
 	 -device loader,addr=0x810000,file=../kernel/enum.bin -device loader,addr=0x818000,file=../kernel/enum-info.bin
 
 norun: loader boot put
-
