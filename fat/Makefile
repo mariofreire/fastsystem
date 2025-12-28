@@ -3,7 +3,7 @@
 # $^ = all dependencies
 
 # First rule is the one executed when no parameters are fed to the Makefile
-all: fat16info fat32info fat16dir fat32dir fatdir
+all: fat16info fat32info fat16dir fat32dir fatdir fatread fget fput
 
 # Notice how dependencies are built as needed
 fat16info: fat16info.o
@@ -21,6 +21,15 @@ fat16dir: fat16dir.o
 fat32dir: fat32dir.o
 	gcc -o $@ $^
 	
+fatread: fatread.o
+	gcc -o $@ $^
+	
+fget: fget.o
+	gcc -o $@ $^
+	
+fput: fput.o
+	gcc -o $@ $^
+	
 fat16info.o: fat16info.c
 	gcc -c $< -o $@
 
@@ -36,7 +45,16 @@ fat32dir.o: fat32dir.c
 fatdir.o: fatdir.c
 	gcc -c $< -o $@
 
+fatread.o: fatread.c
+	gcc -c $< -o $@
+
+fget.o: fget.c
+	gcc -c $< -o $@
+
+fput.o: fput.c
+	gcc -c $< -o $@
+
 clean:
-	rm -f *.o fat16info fat32info fat16dir fat32dir fatdir
+	rm -f *.o fat16info fat32info fat16dir fat32dir fatdir fatread fget fput
 
 
