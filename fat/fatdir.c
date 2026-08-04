@@ -18,6 +18,7 @@
 
 #define BOOT_SIGNATURE 0xAA55
 
+#define PARTITION_FAT16_LESS_32MB 0x04
 #define PARTITION_FAT16 0x06
 #define PARTITION_FAT16_LBA 0x0E
 #define PARTITION_FAT32 0x0B
@@ -223,10 +224,13 @@ uint32_t getclustercount(void);
 uint32_t getsectornumber(uint32_t sector);
 uint32_t getentryoffset(uint32_t sector);
 uint32_t getfirstsectorofcluster(uint32_t cluster);
+uint32_t getnextcluster(uint32_t cluster);
+bool islastcluster(uint32_t cluster);
 uint32_t getrootdirsectorstart(void);
 uint32_t getrootdircluster(void);
 file_entry_t* getfileentryofcluster(uint32_t cluster);
 file_entry_t* getfileentryofsector(uint32_t sector);
+bool getfileentriesofsector(uint32_t sector, file_entry_t entries[16]);
 uint8_t getlongfilename(char *filename, uint32_t sector);
 uint32_t listdir(uint32_t sector);
 uint32_t getfilefirstcluster(file_entry_t entry);
@@ -391,6 +395,7 @@ bool isfat16type(void)
 	{
 		case PARTITION_FAT16:
 		case PARTITION_FAT16_LBA:
+		case PARTITION_FAT16_LESS_32MB:
 		{
 			has_fat16 = true;
 		};
@@ -459,6 +464,7 @@ bool isfattype(void)
 	has_fat = false;
 	switch(main_partition->type)
 	{
+		case PARTITION_FAT16_LESS_32MB:
 		case PARTITION_FAT16:
 		case PARTITION_FAT16_LBA:
 		case PARTITION_FAT32:
@@ -641,6 +647,44 @@ uint32_t getfirstsectorofcluster(uint32_t cluster)
 	return first_sector;
 }
 
+uint32_t getnextcluster(uint32_t cluster)
+{
+    uint8_t sector[SECTORSIZE];
+    uint32_t fat_sector;
+    uint32_t offset;
+
+	if (!imagedisk_file) return 0;
+	if (!hasactive()) return 0;
+	if (!isfattype()) return 0;
+
+    fat_sector = main_partition->lba_start + getsectornumber(cluster);
+    offset = getentryoffset(cluster);
+
+    if (!readsector(fat_sector, sector))
+        return 0;
+
+    if (isfat16type())
+    {
+        return (*(uint16_t *)(sector + offset));
+    }
+    else
+    {
+        return (*(uint32_t *)(sector + offset)) & 0x0FFFFFFF;
+    }
+}
+
+bool islastcluster(uint32_t cluster)
+{
+	if (!imagedisk_file) return 0;
+	if (!hasactive()) return 0;
+	if (!isfattype()) return 0;
+
+    if (isfat16type())
+        return cluster >= 0xFFF8;
+
+    return cluster >= 0x0FFFFFF8;
+}
+
 uint32_t getrootdirsectorstart(void)
 {
 	uint32_t root_cluster;
@@ -665,13 +709,13 @@ uint32_t getrootdircluster(void)
 
 file_entry_t* getfileentryofcluster(uint32_t cluster)
 {
+    static file_entry_t file[16];
+    
 	uint32_t first_sector;
 	uint32_t entryoffset;
 	uint32_t filecount;
 	uint8_t sector[SECTORSIZE];
 	uint8_t dir_entry_data[FAT_ENTRY_SIZE];
-	file_entry_t file[16];
-	file_entry_t *file_p;
 	file_entry_t* entry;
 	if (!imagedisk_file) return NULL;
 	if (!hasactive()) return NULL;
@@ -687,34 +731,46 @@ file_entry_t* getfileentryofcluster(uint32_t cluster)
 		file[filecount] = *entry;
 		filecount++;
 	}
-	file_p = &file[0];
-	return file_p;
+
+	return file;
 }
 
 file_entry_t* getfileentryofsector(uint32_t sector)
 {
-	uint32_t entryoffset;
-	uint32_t filecount;
-	uint8_t first_sector[SECTORSIZE];
-	uint8_t dir_entry_data[FAT_ENTRY_SIZE];
-	file_entry_t file[16];
-	file_entry_t *file_p;
-	file_entry_t* entry;
-	if (!imagedisk_file) return NULL;
-	if (!hasactive()) return NULL;
-	if (!isfattype()) return NULL;
-	if (!readsector(sector, first_sector)) return NULL;
-	filecount = 0;
-	while (filecount < 16)
-	{
-		entryoffset = (filecount*FAT_ENTRY_SIZE);
-		memcpy(dir_entry_data, &first_sector[entryoffset], FAT_ENTRY_SIZE);
-		entry = (file_entry_t*)dir_entry_data;
-		file[filecount] = *entry;
-		filecount++;
-	}
-	file_p = &file[0];
-	return file_p;
+    static file_entry_t file[16];
+
+    uint32_t entryoffset;
+    uint32_t filecount;
+    uint8_t first_sector[SECTORSIZE];
+    uint8_t dir_entry_data[FAT_ENTRY_SIZE];
+    file_entry_t *entry;
+
+    if (!imagedisk_file) return NULL;
+    if (!hasactive()) return NULL;
+    if (!isfattype()) return NULL;
+    if (!readsector(sector, first_sector)) return NULL;
+
+    for (filecount = 0; filecount < 16; filecount++)
+    {
+        entryoffset = filecount * FAT_ENTRY_SIZE;
+        memcpy(dir_entry_data, &first_sector[entryoffset], FAT_ENTRY_SIZE);
+        entry = (file_entry_t *)dir_entry_data;
+        file[filecount] = *entry;
+    }
+
+    return file;
+}
+
+bool getfileentriesofsector(uint32_t sector, file_entry_t entries[16])
+{
+    uint8_t buffer[SECTORSIZE];
+
+    if (!readsector(sector, buffer))
+        return false;
+
+    memcpy(entries, buffer, sizeof(file_entry_t) * 16);
+
+    return true;
 }
 
 void strcatb(char* s1, char* s2)
@@ -763,6 +819,7 @@ uint8_t getlongfilename(char *filename, uint32_t sector)
 	while(q == 0)
 	{
 		entries = getfileentryofsector(sector+entrycount);
+		// if (!getfileentryofsector(sector + entrycount, entries))
 		if (entries == NULL)
 		{
 			q = 1;
@@ -879,6 +936,10 @@ uint32_t listdir(uint32_t sector)
 	int has_lfn = 0;
 	char shortfilename[13];
 	char longfilename[1024];
+	uint32_t cluster;
+	uint32_t current_sector;
+	uint32_t sectors_left;
+	uint32_t root_sector;
 	path_sub_t path_sub;
 	file_entry_t* entries;
 	file_entry_t *find_file;
@@ -886,88 +947,112 @@ uint32_t listdir(uint32_t sector)
 	if (!imagedisk_file) return 0;
 	if (!hasactive()) return 0;
 	if (!isfattype()) return 0;	
+	
+	root_sector = getrootdirsector();
+	
+	cluster = (sector - getdatasector()) /
+          	fat->bpb.bpb1.sector_per_cluster + 2;
+
 	d = 0;
 	q = 0;
 	filecount = 0;
 	entrycount = 0;
 	totalfiles = 0;
-	path_sub = getpath(strupr(filename));
-	while(q == 0)
+	path_sub = getpath(strupr(filename));	
+	
+	while ((!islastcluster(cluster)) || ((q == 0) && (sector == root_sector)))
 	{
-		entries = getfileentryofsector(sector+entrycount);
-		if (entries == NULL)
-		{
-			q = 1;
-			break;
-		}
-		filecount = 0;
-		while (filecount < 16)
-		{			
-			if (entries[filecount].name[0] == 0)
-			{
-				q = 1;
-				break;
-			}
-			if (((uint8_t)entries[filecount].name[0] != FILE_NAME_DELETED) && 
-			    (entries[filecount].attribute != F_ATTR_VOLMID))
-			{
-				if (entries[filecount].attribute != F_ATTR_LNGFNM)
+    	current_sector = getfirstsectorofcluster(cluster);
+	
+    	for (sectors_left = 0;
+         	sectors_left < (((sector == root_sector) ? 1 : fat->bpb.bpb1.sector_per_cluster));
+         	sectors_left++)
+    	{
+    		if (sector != root_sector) {
+        		entries = getfileentryofsector(current_sector + sectors_left);
+        		if (entries == NULL) return totalfiles;
+        	} else {
+        		entries = getfileentryofsector(sector+entrycount);
+				if (entries == NULL)
 				{
-					if ((entries[filecount].name[0] == '.') && (entries[filecount].name[1] == ' ') && (entries[filecount].attribute & F_ATTR_DIRECT))
+					q = 1;
+					break;
+				}
+        	}
+			
+			filecount = 0;
+			while (filecount < 16)
+			{			
+				if (entries[filecount].name[0] == 0)
+				{
+					q = 1;
+					break;
+				}
+				if (((uint8_t)entries[filecount].name[0] != FILE_NAME_DELETED) && 
+			    	(entries[filecount].attribute != F_ATTR_VOLMID))
+				{
+					if (entries[filecount].attribute != F_ATTR_LNGFNM)
 					{
-						d++;
-					}
-					if (d > 1)
-					{
-						q = 1;
-						break;
-					}
-					totalfiles++;
-					strcpy(shortfilename, getshortfilename(entries[filecount].name));
-					strcpy(longfilename, shortfilename);
-					if (has_lfn)
-					{
-						if (getlongfilename(longfilename, sector))
+						if ((entries[filecount].name[0] == '.') && (entries[filecount].name[1] == ' ') && (entries[filecount].attribute & F_ATTR_DIRECT))
 						{
-							strcpy(filename, longfilename);
+							d++;
+						}
+						if (d > 1)
+						{
+							q = 1;
+							break;
+						}
+						totalfiles++;
+						strcpy(shortfilename, getshortfilename(entries[filecount].name));
+						strcpy(longfilename, shortfilename);
+						if (has_lfn)
+						{
+							if (getlongfilename(longfilename, sector))
+							{
+								strcpy(filename, longfilename);
+							}
+							else
+							{
+								strcpy(filename, shortfilename);
+							}
+							has_lfn = 0;
 						}
 						else
 						{
 							strcpy(filename, shortfilename);
 						}
-						has_lfn = 0;
+						fsize = entries[filecount].size;
+						fcluster = getfilefirstcluster(entries[filecount]);
+						fsector = getfirstsectorofcluster(fcluster);
+						fwhere = sectortobytes(fsector);
+											
+						if (entries[filecount].attribute & F_ATTR_DIRECT)
+						{
+							strcpy(ftype, "<DIR>");
+							printf("%-32s\t%-12s\t\t\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fcluster, fsector, fwhere);
+							//printf("%-12s\t%-12s\t\t\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fcluster, fsector, fwhere);
+						}
+						else
+						{
+							strcpy(ftype, "");
+							printf("%-32s\t%-12s\t%-10u\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fsize, fcluster, fsector, fwhere);
+							//printf("%-12s\t%-12s\t%-10u\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fsize, fcluster, fsector, fwhere);
+						}
 					}
 					else
 					{
-						strcpy(filename, shortfilename);
-					}
-					fsize = entries[filecount].size;
-					fcluster = getfilefirstcluster(entries[filecount]);
-					fsector = getfirstsectorofcluster(fcluster);
-					fwhere = sectortobytes(fsector);
-										
-					if (entries[filecount].attribute & F_ATTR_DIRECT)
-					{
-						strcpy(ftype, "<DIR>");
-						printf("%-32s\t%-12s\t\t\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fcluster, fsector, fwhere);
-						//printf("%-12s\t%-12s\t\t\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fcluster, fsector, fwhere);
-					}
-					else
-					{
-						strcpy(ftype, "");
-						printf("%-32s\t%-12s\t%-10u\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fsize, fcluster, fsector, fwhere);
-						//printf("%-12s\t%-12s\t%-10u\t%-10u\t%-10u\t0x%08X\n", filename, ftype, fsize, fcluster, fsector, fwhere);
+						has_lfn = 1;
 					}
 				}
-				else
-				{
-					has_lfn = 1;
-				}
+				filecount++;
 			}
-			filecount++;
-		}
-		entrycount++;
+
+    	}
+	
+    	cluster = getnextcluster(cluster);
+    	if (sector == root_sector) entrycount++;
 	}
+
 	return totalfiles;
 }
 
