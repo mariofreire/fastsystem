@@ -1,1 +1,1 @@
-Fast System EFI
+Fast System Extensible Firmware Interface (EFI)
