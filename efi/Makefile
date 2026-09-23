@@ -32,7 +32,7 @@ clean:
 	rm -rf $(TARGET)
 
 run:
-	qemu-system-i386 -m 512 -smbios type=0,uefi=on -bios ovmf32.bin -hda ../images/efi.img
+	qemu-system-x86_64 -m 512 --enable-kvm -smbios type=0,uefi=on -bios ovmf32.bin -hda ../images/efi.img
 
 put:
 	./fput.sh ../images/efi.img BOOTIA32.EFI EFI/BOOT/BOOTIA32.EFI
