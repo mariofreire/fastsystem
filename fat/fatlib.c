@@ -11,6 +11,20 @@
 #define HIGH16(a) ((unsigned short)(((a)>>16)&0xFFFF))
 #define LOW16(a) ((unsigned short)((a)&0xFFFF))
 
+#define LS_COLOR_RESET       "\033[0m"
+#define LS_COLOR_DIRECTORY   "\033[1;34m"
+#define LS_COLOR_READONLY    "\033[1;36m"
+#define LS_COLOR_HIDDEN      "\033[1;90m"
+#define LS_COLOR_SYSTEM      "\033[1;31m"
+#define LS_COLOR_ARCHIVE     "\033[0;37m" //"\033[0;35m"
+#define LS_COLOR_NORMAL      "\033[0m"
+
+#define LS_DEFAULT_WIDTH     80
+#define LS_COLUMN_PADDING    2
+
+#define LISTDIR_MAX_ENTRIES  256
+#define LISTDIR_NAME_SIZE    MAX_FILENAME_LENGTH
+
 FILE *imagedisk_file = NULL;
 uint64_t imagedisk_size = 0;
 uint8_t MBR[SECTORSIZE];
@@ -20,6 +34,14 @@ fat_t *fat = NULL;
 int active_partition = -1;
 partition_entry_t *partition = NULL;
 partition_entry_t *main_partition = NULL;
+
+unsigned long fat_current_directory_sector = 0;
+
+static char fat_current_directory[MAX_PATH_LENGTH] = "/";
+
+static char listdir_names[LISTDIR_MAX_ENTRIES][LISTDIR_NAME_SIZE];
+static unsigned char listdir_attributes[LISTDIR_MAX_ENTRIES];
+static size_t listdir_count;
 
 char *strupr1(const char *s)
 {
@@ -276,6 +298,8 @@ bool initimagedisk(const char *filename)
         return false;
     }
 
+    strcpy(fat_current_directory, "/");
+
     return true;
 }
 
@@ -296,6 +320,8 @@ bool uninitimagedisk(void)
     partition = NULL;
     main_partition = NULL;
     active_partition = -1;
+
+    strcpy(fat_current_directory, "/");
 
     return result;
 }
@@ -392,6 +418,8 @@ bool loadfat(void)
     if (isfat32type() && fat->bpb.bpb2.fat32.fat_size_32 == 0)
         return false;
 
+    strcpy(fat_current_directory, "/");
+    
     return true;
 }
 
@@ -1705,43 +1733,185 @@ bool findfileinsectorfilenumber(uint32_t directory_start, const char *filename, 
 path_sub_t getpath(const char *path)
 {
     path_sub_t result;
-    size_t length = 0;
+    char combined[MAX_PATH_COMPONENTS * MAX_PATH_LENGTH];
+    const char *source;
+    size_t length;
+    bool absolute;
+    int component_count;
 
     memset(&result, 0, sizeof(result));
+    memset(combined, 0, sizeof(combined));
 
     if (!path)
         return result;
 
-    while (*path != '\0')
+    absolute = (path[0] == '/' || path[0] == '\\');
+
+    if (absolute)
     {
-        char c = *path++;
+        source = path;
+    }
+    else
+    {
+        size_t cwd_len = strlen(fat_current_directory);
+        size_t path_len = strlen(path);
+
+        if (cwd_len >= sizeof(combined))
+            return result;
+
+        memcpy(combined, fat_current_directory, cwd_len);
+
+        length = cwd_len;
+
+        if (length == 0)
+        {
+            combined[length++] = '/';
+        }
+        else if (combined[length - 1] != '/')
+        {
+            if (length + 1 >= sizeof(combined))
+                return result;
+
+            combined[length++] = '/';
+        }
+
+        if (length + path_len >= sizeof(combined))
+            return result;
+
+        memcpy(combined + length, path, path_len + 1);
+
+        source = combined;
+    }
+
+    component_count = 0;
+    length = 0;
+
+    while (*source != '\0')
+    {
+        char c = *source++;
 
         if (c == '/' || c == '\\')
         {
             if (length > 0)
             {
-                result.path[result.pathcount].path[length] = '\0';
-                result.pathcount++;
-                length = 0;
+                result.path[component_count].path[length] = '\0';
 
-                if (result.pathcount >= MAX_PATH_COMPONENTS)
+                if (strcmp(result.path[component_count].path, ".") == 0)
+                {
+                    length = 0;
+                    continue;
+                }
+
+                if (strcmp(result.path[component_count].path, "..") == 0)
+                {
+                    if (component_count > 0)
+                        component_count--;
+
+                    length = 0;
+                    continue;
+                }
+
+                component_count++;
+
+                if (component_count >= MAX_PATH_COMPONENTS)
                     break;
+
+                length = 0;
             }
 
             continue;
         }
 
-        if (length < sizeof(result.path[0].path) - 1)
-            result.path[result.pathcount].path[length++] = c;
+        if (length < MAX_PATH_LENGTH - 1)
+        {
+            result.path[component_count].path[length++] = c;
+        }
+        else
+        {
+            return result;
+        }
     }
 
-    if (length > 0 && result.pathcount < MAX_PATH_COMPONENTS)
+    if (length > 0 && component_count < MAX_PATH_COMPONENTS)
     {
-        result.path[result.pathcount].path[length] = '\0';
-        result.pathcount++;
+        result.path[component_count].path[length] = '\0';
+
+        if (strcmp(result.path[component_count].path, ".") == 0)
+        {
+        }
+        else if (strcmp(result.path[component_count].path, "..") == 0)
+        {
+            if (component_count > 0)
+                component_count--;
+        }
+        else
+        {
+            component_count++;
+        }
     }
+
+    result.pathcount = component_count;
 
     return result;
+}
+
+static bool fat_build_path_from_components(const path_sub_t *path, char *output, size_t output_size)
+{
+    size_t used = 0;
+    int i;
+
+    if (!path || !output || output_size == 0)
+        return false;
+
+    output[0] = '\0';
+
+    if (path->pathcount == 0)
+    {
+        if (output_size < 2)
+            return false;
+
+        output[0] = '/';
+        output[1] = '\0';
+
+        return true;
+    }
+
+    for (i = 0; i < path->pathcount; ++i)
+    {
+        size_t component_length;
+
+        component_length =
+            strlen(path->path[i].path);
+
+        if (component_length == 0)
+            continue;
+
+        if (used + 1 + component_length + 1 > output_size)
+            return false;
+
+        output[used++] = '/';
+
+        memcpy(output + used,
+               path->path[i].path,
+               component_length);
+
+        used += component_length;
+    }
+
+    if (used == 0)
+    {
+        if (output_size < 2)
+            return false;
+
+        output[0] = '/';
+        output[1] = '\0';
+
+        return true;
+    }
+
+    output[used] = '\0';
+
+    return true;
 }
 
 bool find_path_directory(const path_sub_t *path, int component_count, uint32_t *directory_sector)
@@ -2193,7 +2363,7 @@ file_entry_t *findfileinsector(uint32_t sector, char *filename)
     return NULL;
 }
 
-uint32_t listdir(uint32_t sector)
+uint32_t listdironsector(uint32_t sector)
 {
     uint32_t total_files = 0;
     uint32_t current_cluster = 0;
@@ -2497,6 +2667,183 @@ bool write_file_directory_entries(uint32_t sector, uint32_t offset, const char *
     }
 
     return writesector(sector, buffer);
+}
+
+static int listdir_terminal_width(void)
+{
+    return LS_DEFAULT_WIDTH;
+}
+
+static const char *listdir_color(unsigned char attr)
+{
+    if (attr & F_ATTR_DIRECT)
+        return LS_COLOR_DIRECTORY;
+
+    if (attr & F_ATTR_HIDDEN)
+        return LS_COLOR_HIDDEN;
+
+    if (attr & F_ATTR_SYSTEM)
+        return LS_COLOR_SYSTEM;
+
+    if (attr & F_ATTR_RDONLY)
+        return LS_COLOR_READONLY;
+
+    if (attr & F_ATTR_ARCHVE)
+        return LS_COLOR_ARCHIVE;
+
+    return LS_COLOR_NORMAL;
+}
+
+uint8_t listdir(const char *filename)
+{
+    FAT_DIR *dir;
+    fat_dirent_t *entry;
+    size_t i;
+    size_t maxlen;
+    size_t count;
+    int width;
+    int column_width;
+    int columns;
+    int rows;
+
+    if (filename == NULL)
+        return 0;
+
+    dir = fat_opendir(filename);
+
+    if (dir == NULL)
+        return 0;
+
+    listdir_count = 0;
+    maxlen = 0;
+
+    while ((entry = fat_readdir(dir)) != NULL)
+    {
+        size_t len;
+        size_t pos;
+
+        if (entry->d_name[0] == '\0')
+            continue;
+
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        if (entry->d_type == F_ATTR_LNGFNM || entry->d_type == F_ATTR_VOLMID)
+            continue;
+
+        if (listdir_count >= LISTDIR_MAX_ENTRIES)
+            break;
+
+        len = strlen(entry->d_name);
+
+        if (len >= LISTDIR_NAME_SIZE)
+            len = LISTDIR_NAME_SIZE - 1;
+
+        memcpy(listdir_names[listdir_count], entry->d_name, len);
+        listdir_names[listdir_count][len] = '\0';
+        listdir_attributes[listdir_count] = entry->entry.attribute;
+
+        if (len + ((entry->entry.attribute & F_ATTR_DIRECT) ? 1 : 0) > maxlen)
+            maxlen = len + ((entry->entry.attribute & F_ATTR_DIRECT) ? 1 : 0);
+
+        listdir_count++;
+    }
+
+    fat_closedir(dir);
+
+    count = listdir_count;
+
+    if (count == 0)
+        return 1;
+
+    for (i = 1; i < count; i++)
+    {
+        char temp_name[LISTDIR_NAME_SIZE];
+        unsigned char temp_attr;
+        size_t j;
+
+        memcpy(temp_name, listdir_names[i], LISTDIR_NAME_SIZE);
+        temp_attr = listdir_attributes[i];
+        j = i;
+
+        while (j > 0 && strcasecmp(listdir_names[j - 1], temp_name) > 0)
+        {
+            memcpy(listdir_names[j], listdir_names[j - 1], LISTDIR_NAME_SIZE);
+            listdir_attributes[j] = listdir_attributes[j - 1];
+            j--;
+        }
+
+        memcpy(listdir_names[j], temp_name, LISTDIR_NAME_SIZE);
+        listdir_attributes[j] = temp_attr;
+    }
+
+    width = listdir_terminal_width();
+    column_width = (int)maxlen + LS_COLUMN_PADDING;
+
+    if (column_width < 1)
+        column_width = 1;
+
+    columns = width / column_width;
+
+    if (columns < 1)
+        columns = 1;
+
+    if ((size_t)columns > count)
+        columns = (int)count;
+
+    rows = (int)((count + (size_t)columns - 1) / (size_t)columns);
+
+    for (int row = 0; row < rows; row++)
+    {
+        for (int col = 0; col < columns; col++)
+        {
+            size_t index;
+            const char *name;
+            unsigned char attr;
+            const char *color;
+            int printed;
+            size_t len;
+
+            index = (size_t)row + (size_t)col * (size_t)rows;
+
+            if (index >= count)
+                continue;
+
+            name = listdir_names[index];
+            attr = listdir_attributes[index];
+            color = listdir_color(attr);
+
+            printf("%s", color);
+
+            len = strlen(name);
+
+            if (attr & F_ATTR_DIRECT)
+            {
+                printf("%s", name);
+                printed = (int)len + 1;
+            }
+            else
+            {
+                printf("%s", name);
+                printed = (int)len;
+            }
+
+            printf("%s", LS_COLOR_RESET);
+
+            if (col < columns - 1)
+            {
+                while (printed < column_width)
+                {
+                    putchar(' ');
+                    printed++;
+                }
+            }
+        }
+
+        putchar('\n');
+    }
+
+    return 1;
 }
 
 bool findfreeslots_root_fat16(uint32_t required_entries, uint32_t *sector_found, uint32_t *offset_found)
@@ -5409,5 +5756,80 @@ int fat_fchmod(FAT_FILE *file, uint8_t attributes)
     file->entry.attribute = attributes;
 
     return 0;
+}
+
+int fat_chdir(const char *path)
+{
+    path_sub_t parsed;
+    uint32_t directory_sector;
+    char new_directory[MAX_PATH_LENGTH];
+
+    if (!path)
+        return -1;
+
+    if (!imagedisk_file ||
+        !fat ||
+        !hasactive() ||
+        !isfattype())
+    {
+        return -1;
+    }
+
+    parsed = getpath(path);
+
+    if (parsed.pathcount == 0)
+    {
+        directory_sector = getrootdirsectorstart();
+
+        if (directory_sector == 0)
+            return -1;
+
+        strcpy(fat_current_directory, "/");
+
+        return 0;
+    }
+
+    if (!find_path_directory(&parsed, parsed.pathcount, &directory_sector))
+    {
+        return -1;
+    }
+
+    if (directory_sector == 0)
+        return -1;
+
+    if (!fat_build_path_from_components(&parsed, new_directory, sizeof(new_directory)))
+    {
+        return -1;
+    }
+
+    strcpy(fat_current_directory, new_directory);
+    fat_current_directory_sector = directory_sector;
+
+    return 0;
+}
+
+char *fat_getcwd(char *buf, size_t size)
+{
+    size_t length;
+
+    if (!buf || size == 0)
+        return NULL;
+
+    if (!imagedisk_file ||
+        !fat ||
+        !hasactive() ||
+        !isfattype())
+    {
+        return NULL;
+    }
+
+    length = strlen(fat_current_directory);
+
+    if (length + 1 > size)
+        return NULL;
+
+    memcpy(buf, fat_current_directory, length + 1);
+
+    return buf;
 }
 
