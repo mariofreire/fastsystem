@@ -23,13 +23,17 @@ CFLAGS = \
 	-ffreestanding \
 	-nostdlib 
 
-all: $(TARGET) put
+all: $(TARGET) espdir put
 
 $(TARGET): $(SOURCE)
 	$(CC) $(CFLAGS) -o $@ $<
+	
+espdir:
+	gcc -m32 espdir.c -o espdir
 
 clean:
 	rm -rf $(TARGET)
+	rm -f espdir
 
 run:
 	qemu-system-x86_64 -m 512 --enable-kvm -smbios type=0,uefi=on -bios ovmf32.bin -hda ../images/efi.img

@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
+#include <ctype.h>
 
 #define SECTORSIZE 512
 
@@ -578,6 +579,13 @@ bool has_partition_active(void)
 	if (active_partition != -1)
 	{
 		return true;
+	}
+	if (has_efi_support)
+	{
+		if (has_gpt)
+		{
+			return true;
+		}
 	}
 	return false;
 }
@@ -1808,7 +1816,7 @@ int main(int argc, char *argv[])
 												}
 												lsector = sector;
 												is_directory = 1;												
-												printf("Directory[%d] '%s' located at 0x%08X\n", j, filename, sectortobytes(sector));	
+												printf("Directory[%d] '%s' located at 0x%08lX\n", j, filename, sectortobytes(sector));	
 											}												
 										}
 									}
