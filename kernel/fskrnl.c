@@ -1203,6 +1203,96 @@ void get_sgr_color(unsigned char sgr_code, unsigned char csi_code)
 	}
 }
 
+void get_sgr_line_feed(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 2:
+		{
+			clearscreen();
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
+void get_sgr_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					cursorhome();
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			gotoxy(sgr_code, csi_code);
+		}
+		break;
+	}
+}
+
+void get_sgr_save_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					saved_cursor_x = wherex();
+					saved_cursor_y = wherey();
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
+void get_sgr_restore_cursor(unsigned char sgr_code, unsigned char csi_code)
+{
+	switch (sgr_code) 
+	{
+		case 0:
+		{
+			switch (csi_code)
+			{
+				case 0:
+				{
+					gotoxy(saved_cursor_x, saved_cursor_y);
+				}
+				break;
+			}
+		}
+		break;
+		default:
+		{
+			
+		}
+		break;
+	}
+}
+
 static int ansi_param(int value)
 {
 	if (value <= 0)
@@ -1398,276 +1488,330 @@ void get_csi_erase_line(int mode)
 	}
 }
 
-static void process_csi(const char **pp)
+void tprint(const char *s) 
 {
-	const char *s;
-	int params[16];
-	int count;
-	int value;
-	int private_code;
-	int i;
-	s = *pp;
-	count = 0;
-	value = 0;
-	private_code = 0;
-	for (i = 0; i < 16; i++)
-		params[i] = -1;
-	if (*s == '?')
+    while (*s != '\0') 
 	{
-		private_code = 1;
-		s++;
-	}
-	while (*s != '\0')
-	{
-		if (*s >= '0' && *s <= '9')
+        if (*s == '\033') 
 		{
-			value = 0;
-			while (*s >= '0' && *s <= '9')
+            s++;
+            if (*s == '[') 
 			{
-				value = (value * 10) + (*s - '0');
-				s++;
-			}
-			if (count < 16)
-				params[count++] = value;
-			continue;
-		}
-		if (*s == ';')
-		{
-			if (count < 16)
-				params[count++] = -1;
-			s++;
-			continue;
-		}
-		break;
-	}
-	if (count == 0)
-	{
-		params[0] = 1;
-		count = 1;
-	}
-	if (params[0] < 0)
-		params[0] = 1;
-	switch (*s)
-	{
-		case 'A':
-		{
-			get_csi_cursor_up(params[0]);
-		}
-		break;
-		case 'B':
-		{
-			get_csi_cursor_down(params[0]);
-		}
-		break;
-		case 'C':
-		{
-			get_csi_cursor_forward(params[0]);
-		}
-		break;
-		case 'D':
-		{
-			get_csi_cursor_backward(params[0]);
-		}
-		break;
-		case 'E':
-		{
-			get_csi_cursor_next_line(params[0]);
-		}
-		break;
-		case 'F':
-		{
-			get_csi_cursor_previous_line(params[0]);
-		}
-		break;
-		case 'G':
-		{
-			get_csi_cursor_horizontal(params[0]);
-		}
-		break;
-		case 'H':
-		case 'f':
-		{
-			int row;
-			int column;
-			row = params[0];
-			if (row < 0)
-				row = 1;
-			column = 1;
-			if (count > 1 && params[1] >= 0)
-				column = params[1];
-			get_csi_cursor_position(row, column);
-		}
-		break;
-		case 'J':
-		{
-			get_csi_erase_display(params[0] < 0 ? 0 : params[0]);
-		}
-		break;
-		case 'K':
-		{
-			get_csi_erase_line(params[0] < 0 ? 0 : params[0]);
-		}
-		break;
-		case 'm':
-		{
-			if (count == 0)
-			{
-				get_sgr_color(0, 0);
-			}
-			else
-			{
-				for (i = 0; i < count; i++)
+                s++;
+                int csi_code = 0;
+                int sgr_code = 0;
+                int number_code = 0;
+                int private_code = 0;
+                if (*s == '?')
 				{
-					int sgr;
-					sgr = params[i];
-					if (sgr < 0)
-						sgr = 0;
-					get_sgr_color((unsigned char)sgr, 0);
+    				private_code = 1;
+    				s++;
 				}
-			}
-		}
-		break;
-		case 's':
-		{
-			get_csi_save_cursor();
-		}
-		break;
-		case 'u':
-		{
-			get_csi_restore_cursor();
-		}
-		break;
-		case 'h':
-		{
-			if (private_code)
-			{
-				for (i = 0; i < count; i++)
+                if (*s == ';') 
 				{
-					if (params[i] == 25)
-						showcursor();
-				}
-			}
-		}
-		break;
-		case 'l':
-		{
-			if (private_code)
-			{
-				for (i = 0; i < count; i++)
-				{
-					if (params[i] == 25)
-						hidecursor();
-				}
-			}
-		}
-		break;
-		default:
-		break;
-	}
-	if (*s != '\0')
-		s++;
-	*pp = s;
-}
-
-void tprint(const char *s)
-{
-	while (*s != '\0')
-	{
-		if (*s == '\033')
-		{
-			s++;
-			if (*s == '[')
-			{
-				s++;
-				process_csi(&s);
-				continue;
-			}
-			if (*s == '7')
-			{
-				get_csi_save_cursor();
-				s++;
-				continue;
-			}
-			if (*s == '8')
-			{
-				get_csi_restore_cursor();
-				s++;
-				continue;
-			}
-			if (*s == 'c')
-			{
-				textattr = toattr(SILVER, BLACK);
-				cursorhome();
-				s++;
-				continue;
-			}
-			if (*s != '\0')
-				s++;
-			continue;
-		}
-		cputch(textattr, *s);
-		s++;
-	}
-}
-
-void tprintl(const char *s, unsigned long l)
-{
-	while ((*s != '\0') && l)
-	{
-		if (*s == '\033')
-		{
-			s++;
-			l--;
-			if (!l || *s == '\0')
-				break;
-			if (*s == '[')
-			{
-				s++;
-				l--;
-				if (!l)
-					break;
-				{
-					const char *p;
-					p = s;
-					process_csi(&p);
-					while (s < p && l)
+                    s++;
+                }
+                if (*s >= '0' && *s <= '9')
+                {
+                    while (*s >= '0' && *s <= '9') 
 					{
-						s++;
-						l--;
+                        number_code = number_code * 10 + (*s - '0');
+                        s++;
+                        if (*s == ';') 
+						{
+                            s++;
+                            csi_code = number_code;
+                            number_code = 0;
+                        }
+                    }
+                    sgr_code = number_code;
+                }
+				switch(*s)
+				{
+					case 'A':
+					{
+						get_csi_cursor_up(sgr_code);
 					}
+					break;
+					case 'B':
+					{
+						get_csi_cursor_down(sgr_code);
+					}
+					break;
+					case 'C':
+					{
+						get_csi_cursor_forward(sgr_code);
+					}
+					break;
+					case 'D':
+					{
+						get_csi_cursor_backward(sgr_code);
+					}
+					break;
+					case 'E':
+					{
+						get_csi_cursor_next_line(sgr_code);
+					}
+					break;
+					case 'F':
+					{
+						get_csi_cursor_previous_line(sgr_code);
+					}
+					break;
+					case 'G':
+					{
+						get_csi_cursor_horizontal(sgr_code);
+					}
+					break;
+					case 'K':
+					{
+						get_csi_erase_line(sgr_code);
+					}
+					break;
+					case 'm':
+					{
+						get_sgr_color(sgr_code, csi_code);
+					}
+					break;
+					case 'J':
+					{
+						get_sgr_line_feed(sgr_code, csi_code);
+					}
+					break;
+					case 'H':
+					case 'f':
+					{
+						get_sgr_cursor(sgr_code, csi_code);
+					}
+					break;
+					case 's':
+					{
+						get_sgr_save_cursor(sgr_code, csi_code);
+					}
+					break;
+					case 'u':
+					{
+						get_sgr_restore_cursor(sgr_code, csi_code);
+					}
+					break;
+    				case 'l':
+    				{
+        				if (private_code && sgr_code == 25)
+        				{
+            				hidecursor();
+        				}
+    				}
+    				break;				
+    				case 'h':
+    				{
+        				if (private_code && sgr_code == 25)
+        				{
+            				showcursor();
+        				}
+    				}
+    				break;
+				};
+            }
+            else
+            if (*s == '7') 
+			{
+				get_sgr_save_cursor(0, 0);
+                s++;
+			}
+            else
+            if (*s == '8') 
+			{
+				get_sgr_restore_cursor(0, 0);
+                s++;
+			}
+        } else 
+		{
+            cputch(textattr, *s);
+        }
+        s++;
+    }
+}
+
+void tprintl(const char *s, unsigned long l) 
+{
+	unsigned char print_status = 0;
+    while ((*s != '\0') && (l--))
+	{
+        if (*s == '\033') 
+		{
+			print_status = 1;
+            s++;
+            if (*s == '[') 
+			{
+				print_status = 1;
+                s++;
+                int csi_code = 0;
+                int sgr_code = 0;
+                int number_code = 0;
+                int private_code = 0;
+                if (*s == '?')
+				{
+    				private_code = 1;
+    				s++;
 				}
-				continue;
-			}
-			if (*s == '7')
+                if (*s == ';') 
+				{
+					print_status = 1;
+                    s++;
+                }
+                if (*s >= '0' && *s <= '9')
+                {
+					print_status = 1;
+                    while (*s >= '0' && *s <= '9') 
+					{
+                        number_code = number_code * 10 + (*s - '0');
+                        s++;
+                        if (*s == ';') 
+						{
+                            s++;
+                            csi_code = number_code;
+                            number_code = 0;
+                        }
+                    }
+                    sgr_code = number_code;
+                }
+				switch(*s)
+				{
+					case 'A':
+					{
+						print_status = 1;
+						get_csi_cursor_up(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'B':
+					{
+						print_status = 1;
+						get_csi_cursor_down(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'C':
+					{
+						print_status = 1;
+						get_csi_cursor_forward(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'D':
+					{
+						print_status = 1;
+						get_csi_cursor_backward(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'E':
+					{
+						print_status = 1;
+						get_csi_cursor_next_line(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'F':
+					{
+						print_status = 1;
+						get_csi_cursor_previous_line(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'G':
+					{
+						print_status = 1;
+						get_csi_cursor_horizontal(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'K':
+					{
+						print_status = 1;
+						get_csi_erase_line(sgr_code);
+						print_status = 0;
+					}
+					break;
+					case 'm':
+					{
+						print_status = 1;
+						get_sgr_color(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'J':
+					{
+						print_status = 1;
+						get_sgr_line_feed(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'H':
+					case 'f':
+					{
+						print_status = 1;
+						get_sgr_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 's':
+					{
+						print_status = 1;
+						get_sgr_save_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+					case 'u':
+					{
+						print_status = 1;
+						get_sgr_restore_cursor(sgr_code, csi_code);
+						print_status = 0;
+					}
+					break;
+    				case 'l':
+    				{
+        				if (private_code && sgr_code == 25)
+        				{
+            				hidecursor();
+        				}
+    				}
+    				break;				
+    				case 'h':
+    				{
+        				if (private_code && sgr_code == 25)
+        				{
+            				showcursor();
+        				}
+    				}
+    				break;
+				};
+            }
+            else
+            if (*s == '7') 
 			{
-				get_csi_save_cursor();
-				s++;
-				l--;
-				continue;
+				print_status = 1;
+				get_sgr_save_cursor(0, 0);
+                s++;
+				print_status = 0;
 			}
-			if (*s == '8')
+            else
+            if (*s == '8') 
 			{
-				get_csi_restore_cursor();
-				s++;
-				l--;
-				continue;
+				print_status = 1;
+				get_sgr_restore_cursor(0, 0);
+                s++;
+				print_status = 0;
 			}
-			if (*s == 'c')
+        } else 
+		{
+			if (print_status == 0)
 			{
-				textattr = toattr(SILVER, BLACK);
-				cursorhome();
-				s++;
-				l--;
-				continue;
+				cputch(textattr, *s);
 			}
-			s++;
-			l--;
-			continue;
-		}
-		cputch(textattr, *s);
-		s++;
-		l--;
-	}
+        }
+        s++;
+    }
 }
 
 void panic(unsigned long exception_code)
