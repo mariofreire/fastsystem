@@ -35,8 +35,8 @@ arith64.o: arith64.c
 	gcc -g -Os -ffreestanding -fno-pie -fno-exceptions -s -static -fno-builtin -fno-asynchronous-unwind-tables -nostdlib -nostartfiles -m32 -c $< -o $@
 
 clean:
-	rm -f loader.sym loader.debug loader.elf loader_start.o functions.o loader.o loader
-	rm -f *.o *.a
+	rm -f loader
+	rm -f *.o *.a *.elf *.sym *.debug
 
 boot:
 	../boot/writeboot ../images/harddisk.img ../boot/boot.bin
