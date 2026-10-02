@@ -363,10 +363,10 @@ int current_text_y = 0;
 
 unsigned short timer_frequency = 1000;
 
-//task_t thread[MAX_TASKS];
 task_t *thread;
 int thread_count = 0;
 int current_thread = 0;
+int max_tasks = MAX_TASKS;
 
 int idle_thread_id = -1;
 
@@ -5392,6 +5392,7 @@ task_t* getprevthreadbyid(int id, int parentid)
 	int prev_id=0;		
 	static int ftlist01[MAX_TASKS];
 	int ftlist01_cnt=0;
+	int task_limit = get_max_tasks();
 	task_t *t = getthreadbyid(id);
 	if (t != 0)
 	{
@@ -5438,7 +5439,7 @@ task_t* getprevthreadbyid(int id, int parentid)
 		{
 			if (thread[i].parent->thread_id == parent_id)
 			{
-				if (ftlist01_cnt >= MAX_TASKS-1) break;
+				if (ftlist01_cnt >= task_limit-1) break;
 				ftlist01[ftlist01_cnt] = thread[i].thread_id;
 				ftlist01_cnt++;
 			}
@@ -5475,6 +5476,7 @@ task_t* getnextthreadbyid(int id, int parentid)
 	int next_id=0;
 	static int ftlist01[MAX_TASKS];
 	int ftlist01_cnt=0;
+	int task_limit = get_max_tasks();
 	task_t *t = getthreadbyid(id);
 	if (t != 0)
 	{
@@ -5521,7 +5523,7 @@ task_t* getnextthreadbyid(int id, int parentid)
 		{
 			if (thread[i].parent->thread_id == parent_id)
 			{
-				if (ftlist01_cnt >= MAX_TASKS-1) break;
+				if (ftlist01_cnt >= task_limit-1) break;
 				ftlist01[ftlist01_cnt] = thread[i].thread_id;
 				ftlist01_cnt++;
 			}
@@ -5608,7 +5610,7 @@ task_t* getprevthreadbyid(int id, int parentid)
 		{
 			if (thread[i].parent->thread_id == parent_id)
 			{
-				if (tlist_cnt >= MAX_TASKS-1) break;
+				if (tlist_cnt >= get_max_tasks()-1) break;
 				tlist[tlist_cnt] = thread[i].thread_id;
 				tlist_cnt++;
 			}
@@ -5690,7 +5692,7 @@ task_t* getnextthreadbyid(int id, int parentid)
 		{
 			if (thread[i].parent->thread_id == parent_id)
 			{
-				if (tlist_cnt >= MAX_TASKS-1) break;
+				if (tlist_cnt >= get_max_tasks()-1) break;
 				tlist[tlist_cnt] = thread[i].thread_id;
 				tlist_cnt++;
 			}
@@ -5887,6 +5889,7 @@ int kernel_createthread(task_t *handle_instance,
 
     int new_id;
     int parent_id;
+    int task_limit;    
 
     task_t *t;
     task_t *parent;
@@ -5901,8 +5904,10 @@ int kernel_createthread(task_t *handle_instance,
 
     if (entry == NULL)
         return 0;
+        
+    task_limit = get_max_tasks();
 
-    if (thread_count >= MAX_TASKS)
+    if (thread_count >= task_limit)
         return 0;
         
     if (stack_size < 0)
@@ -6087,20 +6092,54 @@ int sys_createthread(createthread_args_t *uargs)
     );
 }
 
+int get_max_tasks(void)
+{
+	return max_tasks;
+}
+
+void set_max_tasks(int max_task_limit)
+{
+	if (scheduler_initialized == 1) return;
+	max_tasks = max_task_limit;
+}
+
+void set_task_limit_memory(int memory_mb)
+{
+	if (memory_mb >= 1536) set_max_tasks(MAX_TASKS);
+	else
+	{
+    	if ((memory_mb >= 1024) && (memory_mb < 1536)) set_max_tasks(MAX_TASKS>>1);
+    	else
+    	{
+        	if ((memory_mb >= 512) && (memory_mb < 1024)) set_max_tasks(MAX_TASKS>>2);
+        	else
+        	{
+        		if ((memory_mb >= 256) && (memory_mb < 512)) set_max_tasks(MAX_TASKS>>5);
+        		else
+        		{
+        			panic((unsigned long)system_info);
+        		}
+        	}
+    	}
+	}
+}
+
 void init_multitask(void)
 {
+	int task_limit;
     int idle_id = -1;
     task_t idle_thread;
     disable_interrupt();
     thread_count = 0;
+    task_limit = get_max_tasks();
     scheduler_initialized = 0;
-    thread = (task_t*)kmalloc(MAX_TASKS*sizeof(task_t));
+    thread = (task_t*)kmalloc(task_limit*sizeof(task_t));
     if (thread == NULL)
     {
         enable_interrupt();
         return;
     }
-    //memset(thread, 0, MAX_TASKS * sizeof(task_t));
+    //memset(thread, 0, task_limit * sizeof(task_t));
     kernel_createthread(
         &idle_thread,
         "idle",
@@ -7484,6 +7523,7 @@ int sys_fork_handler(registers_t *parent_frame)
     unsigned long child_end;
     unsigned long stack_offset;
     context_t *child_frame;
+    int task_limit;
 
     int child_id;
     int _pid;
@@ -7496,8 +7536,10 @@ int sys_fork_handler(registers_t *parent_frame)
 
     if (!valid_process_id(current_process))
         return -1;
+        
+    task_limit = get_max_tasks();
 
-    if (thread_count >= MAX_TASKS)
+    if (thread_count >= task_limit)
         return -1;
 
     parent = &thread[current_thread];
@@ -7641,7 +7683,9 @@ int sys_brk_handler(void *_addr)
     if (!valid_task_id(current_thread))
         return 0;
 
-    if (thread_count >= MAX_TASKS)
+    int task_limit = get_max_tasks();
+
+    if (thread_count >= task_limit)
         return 0;
 
     //return (int)sbrk((unsigned long)_addr);
@@ -13133,7 +13177,8 @@ int main(void)
         if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_VERBOSE)))
         {
             printk("Setting MultiTask Thread.\n");
-        }		
+        }        
+        set_task_limit_memory(physical_memory);
 		init_multitask();
 	}
 
@@ -14496,7 +14541,7 @@ int main(void)
 					{
 						int show_thread_ids;
 						int tlist_tmp_cnt=0;
-						unsigned long *tlist_tmp = (unsigned long *)malloc(MAX_TASKS);
+						unsigned long *tlist_tmp = (unsigned long *)malloc(get_max_tasks());
 						if (argc > 1)
 						{
 							if (strcmp(argv[1], "-i") == 0) show_thread_ids = 1;
@@ -14560,7 +14605,7 @@ int main(void)
 					else
 					{
 						int plist_tmp_cnt=0;
-						unsigned long *plist_tmp = (unsigned long *)malloc(MAX_TASKS);
+						unsigned long *plist_tmp = (unsigned long *)malloc(get_max_tasks());
 						get_process_list(plist_tmp, &plist_tmp_cnt);
     					print_string_left("PID", 8);
     					print_string_left("PPID", 8);

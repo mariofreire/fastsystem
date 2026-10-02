@@ -971,7 +971,6 @@ extern gdt_t gdt;
 extern idt_t idt;
 extern tss_t tss;
 
-//extern task_t thread[MAX_TASKS];
 extern task_t *thread;
 extern int thread_count;
 extern int current_thread;
@@ -1477,6 +1476,9 @@ struct user_desc
 int set_thread_area(struct user_desc *u_info);
 int get_thread_area(struct user_desc *u_info);
 int tls_load_task(task_t *t);
+
+int get_max_tasks(void);
+void set_max_tasks(int max_task_limit);
 
 
 #endif // __FSKRNL_H__
