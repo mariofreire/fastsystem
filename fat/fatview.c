@@ -72,6 +72,7 @@ int main(int argc, char *argv[])
     char fn[MAX_FILENAME_LENGTH];
     bool is_file = false;
     bool file_exists_on_disk = false;
+    bool is_root_dir = false;
     uint16_t utf16_name[LFN_MAX_CHARS];
     size_t utf16_length;
     size_t lfn_count;
@@ -96,13 +97,9 @@ int main(int argc, char *argv[])
     {
     	memset(fn, 0, sizeof(fn));
     	strcpy(fn, argv[2]);
-    	if (strcmp(fn, "/") == 0)
-    	{
-    		strcpy(fn, "/.");
-    	}
     	file_name = (char*)fn;
     }
-    else file_name = "/.";
+    else file_name = "/";
     
     if (!initimagedisk(image_name))
     {
@@ -132,46 +129,55 @@ int main(int argc, char *argv[])
     }
     
     root_sector = getrootdirsectorstart();
-
-    path = getpath(file_name);
-
-    if (path.pathcount == 0)
-    {
-        fprintf(stderr, "Error: Invalid destination filename.\n");
-        uninitimagedisk();
-        return 1;
+    
+    if (strcmp(file_name, "/") != 0)
+    {	
+    	path = getpath(file_name);
+	
+    	if (path.pathcount == 0)
+    	{
+        	fprintf(stderr, "Error: Invalid destination filename.\n");
+        	uninitimagedisk();
+        	return 1;
+    	}
+	
+    	final_name = path.path[path.pathcount - 1].path;
+	
+    	utf16_length = utf8_to_utf16(final_name, utf16_name, LFN_MAX_CHARS);
+	
+    	if (utf16_length == 0)
+    	{
+        	fprintf(stderr, "Error: Invalid UTF-8 filename.\n");
+        	uninitimagedisk();
+        	return 1;
+    	}
+	
+    	if (utf16_length > LFN_MAX_CHARS)
+    	{
+        	fprintf(stderr, "Error: Filename is longer than 255 UTF-16 characters.\n");
+        	uninitimagedisk();
+        	return 1;
+    	}
+	
+    	lfn_count = lfn_entry_count(utf16_length);
+	
+    	if (lfn_count == 0 || lfn_count > LFN_MAX_ENTRIES)
+    	{
+        	fprintf(stderr, "Error: Invalid LFN length.\n");
+        	uninitimagedisk();
+        	return 1;
+    	}
+	
+    	directory_entries_needed = lfn_count + 1;
+	
+    	strfilenamedos(final_name, dos_name);
+    	
+    	is_root_dir = false;
     }
-
-    final_name = path.path[path.pathcount - 1].path;
-
-    utf16_length = utf8_to_utf16(final_name, utf16_name, LFN_MAX_CHARS);
-
-    if (utf16_length == 0)
+    else
     {
-        fprintf(stderr, "Error: Invalid UTF-8 filename.\n");
-        uninitimagedisk();
-        return 1;
+    	is_root_dir = true;
     }
-
-    if (utf16_length > LFN_MAX_CHARS)
-    {
-        fprintf(stderr, "Error: Filename is longer than 255 UTF-16 characters.\n");
-        uninitimagedisk();
-        return 1;
-    }
-
-    lfn_count = lfn_entry_count(utf16_length);
-
-    if (lfn_count == 0 || lfn_count > LFN_MAX_ENTRIES)
-    {
-        fprintf(stderr, "Error: Invalid LFN length.\n");
-        uninitimagedisk();
-        return 1;
-    }
-
-    directory_entries_needed = lfn_count + 1;
-
-    strfilenamedos(final_name, dos_name);
 
     first_cluster = 0;
     if (path.pathcount == 1)
@@ -179,33 +185,42 @@ int main(int argc, char *argv[])
         directory_sector = root_sector;
     }
     
-	entry = findfile(root_sector, file_name);
-	if (entry != NULL)
-	{
-		file_exists_on_disk = true;
-		first_cluster = getfilefirstcluster(entry);
-		if (entry->attribute & F_ATTR_DIRECT) 
+    if (is_root_dir == false)
+    {
+		entry = findfile(root_sector, file_name);
+		if (entry != NULL)
 		{
-			is_file = false;
-			directory_sector = clustertosector(first_cluster);
-			if (isfat16type()) 
+			file_exists_on_disk = true;
+			first_cluster = getfilefirstcluster(entry);
+			if (entry->attribute & F_ATTR_DIRECT) 
 			{
-				if (first_cluster == 0) directory_sector = root_sector;
-			}						
-		}
-		else 
+				is_file = false;
+				directory_sector = clustertosector(first_cluster);
+				if (isfat16type()) 
+				{
+					if (first_cluster == 0) directory_sector = root_sector;
+				}						
+			}
+			else 
+			{
+				is_file = true;					
+    			if (first_cluster != 0)
+    			{
+    				directory_sector = clustertosector(first_cluster);								
+        		}
+			}
+		} else 
 		{
-			is_file = true;					
-    		if (first_cluster != 0)
-    		{
-    			directory_sector = clustertosector(first_cluster);								
-        	}
+			file_exists_on_disk = false;
+			is_file = false;
+			directory_sector = root_sector;
 		}
-	} else 
+	}
+	else
 	{
-		file_exists_on_disk = false;
-		is_file = false;
-		directory_sector = root_sector;
+			file_exists_on_disk = true;
+			is_file = false;
+			directory_sector = root_sector;		
 	}
 					
     
