@@ -800,6 +800,7 @@ typedef struct task
     int quantum_left;   
     unsigned int wake_tick; 
     unsigned int thread_id;
+    unsigned int process_id;
     thread_entry_t entry;
     void *param;
     void *result;
@@ -1335,6 +1336,14 @@ task_t* findthread(const char *name);
 task_t* getthreadbyid(int id);
 task_t* getthreadbypid(int pid);
 task_t* getthreadbypidnottid(int pid, int not_thread_id);
+
+int getpidbythreadid(int thread_id);
+int getthreadidbypid(int pid);
+int getppidbypid(int pid);
+int isparentpid(int pid);
+int isparentthreadid(int thread_id);
+int getthreadidbyppid(int pid);
+int getchildthreadbyparent(int parent_tid);
 
 void task_ready(int task_id);
 void task_yield(int task_id);

@@ -24,6 +24,7 @@ global context_switch
 global switchcontext
 global switchtokernelmode
 global switchtousermode
+global kernelmode_entry_gate
 global kernelmode_start
 global pic_set
 global pic_restore
@@ -104,8 +105,7 @@ irq0:
     xor eax, eax
     mov ax, gs
     push eax
-	xor eax, eax
-	mov al, byte [current_data_segment]
+    mov ax, KERNEL_MODE_DATA_SEGMENT
     mov ds, ax
     mov es, ax
     mov fs, ax
@@ -113,9 +113,10 @@ irq0:
     push esp
     call timer_handler
     add esp, 4
-    mov esp, eax
+    mov ebx, eax
     mov al, 0x20
     out 0x20, al
+    mov esp, ebx
     pop gs
     pop fs
     pop es
@@ -134,66 +135,53 @@ task_start:
     iretd
     
 context_switch:
-	; pusha
-	; push ds
-	; push es
-	; push fs
-	; push gs
-	; popa
-	; iret
-	
-    ; Save current registers
-    pusha
-
-    push ds
-    push es
-    push fs
-    push gs
-
-    ; ESP now points to the saved context.
-    push esp
-    
-    ; Call:
-    ;     schedule(current_esp)
-    ;
-    ; schedule() returns the ESP of the next task.
-    call schedule
-
-    add esp, 4
-
-    ; Switch to next task's stack.
-    mov esp, eax
-
-    ; Restore segment registers.
-    pop gs
-    pop fs
-    pop es
-    pop ds
-
-    ; Restore general registers.
-    popa
-
-    ret
-
-
-task_switch:
-    mov eax,[esp+4]
-    mov [eax], esp
-    push ds
-    push es
-    push fs
-    push gs
+    pushfd
+    or dword [esp], 0x200
+    and dword [esp], 0xFFFFBFFF
+    push dword KERNEL_MODE_CODE_SEGMENT
+    push dword context_switch_resume
     pushad
-    ret
-
-task_restore:
-    mov esp,[esp+4]
+    push ds
+    push es
+    push fs
+    push gs
+    push esp
+    call schedule
+    add esp, 4
+    mov esp, eax
     pop gs
     pop fs
     pop es
     pop ds
     popad
     iretd
+context_switch_resume:
+    ret
+
+task_switch:
+    mov eax, [esp+4]
+    push ds
+    push es
+    push fs
+    push gs
+    pushad
+    mov [eax], esp
+    popad
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    ret
+
+task_restore:
+    mov eax, [esp+4]
+    mov esp, eax
+    popad
+    pop gs
+    pop fs
+    pop es
+    pop ds
+    ret
 
 switchcontext:
     mov eax, [esp+4]
@@ -207,7 +195,6 @@ halt:
 	jmp $
 
 kernelmode_start:
-	add esp, 4
 	mov eax, 0
 	mov ebx, 0
 	mov ecx, 0
@@ -274,18 +261,63 @@ switchtokernelmode2:
 	hlt
 	jmp $
 	
-switchtokernelmode:	
+switchtokernelmode:
+	mov ax, cs
+	and ax, 3
+	jnz switchtokernelmode_from_user
 	call kernelmode_preinit
-	mov ax, KERNEL_MODE_CODE_SEGMENT	
+	mov ax, KERNEL_MODE_CODE_SEGMENT
 	mov byte [current_code_segment], al
 	mov ax, KERNEL_MODE_DATA_SEGMENT
 	mov byte [current_data_segment], al
-	
+	mov ds, ax
+	mov es, ax
+	mov ss, ax
+	mov gs, ax
+	mov ax, TLS_SELECTOR
+	mov fs, ax
 	call kernelmode_init
-	jmp KERNEL_MODE_CODE_SEGMENT:kernelmode_code2
-	hlt
-	jmp $
-	
+	ret
+
+switchtokernelmode_from_user:
+	int 0x81
+	ret
+
+kernelmode_entry_gate:
+	push ds
+	push es
+	push fs
+	push gs
+	pushad
+	call kernelmode_preinit
+	mov ax, KERNEL_MODE_DATA_SEGMENT
+	mov ds, ax
+	mov es, ax
+	mov gs, ax
+	mov byte [current_data_segment], al
+	mov ax, KERNEL_MODE_CODE_SEGMENT
+	mov byte [current_code_segment], al
+	mov ax, TLS_SELECTOR
+	mov fs, ax
+	call kernelmode_init
+	popad
+	pop gs
+	pop fs
+	pop es
+	pop ds
+	mov eax, [esp+12]
+	mov ebx, [esp]
+	mov ecx, [esp+8]
+	and ecx, 0xFFFFBFFF
+	or ecx, 0x200
+	mov dx, KERNEL_MODE_DATA_SEGMENT
+	mov ss, dx
+	mov esp, eax
+	push ecx
+	push dword KERNEL_MODE_CODE_SEGMENT
+	push ebx
+	iretd
+
 kernelmode_code2:
 	mov ax, KERNEL_MODE_CODE_SEGMENT	
 	mov byte [current_code_segment], al
@@ -295,38 +327,41 @@ kernelmode_code2:
     mov es, ax
     mov fs, ax
     mov gs, ax
-    push KERNEL_MODE_DATA_SEGMENT
-    push esp
-    pushfd
-    push KERNEL_MODE_CODE_SEGMENT
-    lea eax, [kernelmode_start]
-	push eax
-	sti
-    iretd
-	hlt
+    mov ss, ax
+	call kernelmode_start
+	ret
 	
 switchtousermode:
-	mov ax, USER_MODE_CODE_SEGMENT	
+	mov ax, cs
+	and ax, 3
+	cmp ax, 3
+	je switchtousermode_already
+	cli
+	mov ax, USER_MODE_CODE_SEGMENT
 	mov byte [current_code_segment], al
 	mov ax, USER_MODE_DATA_SEGMENT
 	mov byte [current_data_segment], al
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    push USER_MODE_DATA_SEGMENT
-    push esp
-    pushfd
-    push USER_MODE_CODE_SEGMENT
-    lea eax, [usermode_start]
+	mov ds, ax
+	mov es, ax
+	mov gs, ax
+	mov ax, TLS_SELECTOR
+	mov fs, ax
+	push dword USER_MODE_DATA_SEGMENT
+	mov eax, esp
+	add eax, 4
 	push eax
-	sti
-    iretd
-	hlt
-	jmp $
+	pushfd
+	or dword [esp], 0x3200
+	and dword [esp], 0xFFFFBFFF
+	push dword USER_MODE_CODE_SEGMENT
+	push dword usermode_start
+	iretd
+
+switchtousermode_already:
+	call usermode_init
+	ret
 
 usermode_start:
-	add esp, 4
 	mov eax, 0
 	mov ebx, 0
 	mov ecx, 0
@@ -363,8 +398,7 @@ isr_stub:
 	pusha
 	mov ax, ds
 	push eax
-	xor eax, eax
-	mov al, byte [current_data_segment]
+	mov ax, KERNEL_MODE_DATA_SEGMENT
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
@@ -379,15 +413,13 @@ isr_stub:
 	mov gs, bx
 	popa
 	add esp, 8
-	sti
 	iret
 
 irq_stub:
 	pusha
 	mov ax, ds
 	push eax
-	xor eax, eax
-	mov al, byte [current_data_segment]
+	mov ax, KERNEL_MODE_DATA_SEGMENT
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
@@ -402,7 +434,6 @@ irq_stub:
 	mov gs, bx
 	popa
 	add esp, 8
-	sti
 	iret
 	
 
@@ -1030,7 +1061,7 @@ or ax, 2
 mov cr0, eax
 mov eax, cr4
 or ax, 1536
-mov eax, cr4
+mov cr4, eax
 mov esp, ebp
 pop ebp
 ret
@@ -1078,6 +1109,7 @@ KERNEL_MODE_CODE_SEGMENT equ CODE_SEGMENT
 KERNEL_MODE_DATA_SEGMENT equ DATA_SEGMENT
 USER_MODE_CODE_SEGMENT equ 0x1b ; (KERNEL_MODE_DATA_SEGMENT|TSS_CODE_SEGMENT)
 USER_MODE_DATA_SEGMENT equ 0x23 ; (KERNEL_MODE_DATA_SEGMENT|TSS_DATA_SEGMENT)
+TLS_SELECTOR equ 0x40
 
 current_code_segment db KERNEL_MODE_CODE_SEGMENT
 current_data_segment db KERNEL_MODE_DATA_SEGMENT

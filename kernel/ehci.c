@@ -1,4 +1,4 @@
-// Fast System Kernel Loader - Enhanced Host Controller Interface
+// Fast System Kernel - Enhanced Host Controller Interface
 // Author: Mario Freire
 // Version 0.1
 // Copyright (C) 2026 DSP Interactive.

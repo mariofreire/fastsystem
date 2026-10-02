@@ -210,6 +210,7 @@ extern void isr125();
 extern void isr126();
 extern void isr127();
 extern void isr128();
+extern void kernelmode_entry_gate();
 extern void isr129();
 extern void isr130();
 extern void isr131();
@@ -2103,19 +2104,16 @@ void *task_tls_counter(void)
     return tls_get(TLS_OFFSET_COUNTER);
 }
 
-extern void _end();
-//extern void kstack_top();
+static unsigned char tss_boot_stack[KERNEL_STACK_SIZE] __attribute__((aligned(16)));
 
 void settss_entries(void)
 {
-	settss(7, KERNEL_MODE_DATA_SEGMENT, 0xF000000);
-	//settss(7, KERNEL_MODE_DATA_SEGMENT, (unsigned long)_end+KERNEL_STACK_SIZE); //0xF000000);
-	//kernel_stack = (unsigned long)kstack_top;
-	//settss(7, KERNEL_MODE_DATA_SEGMENT, (unsigned long)kstack_top);
-	
-	//settss(7, KERNEL_MODE_DATA_SEGMENT, (unsigned long)kernel_end+KERNEL_STACK_SIZE);
-	//kernel_stack = kmalloc_a(KERNEL_STACK_SIZE);
-	//settss_stack(KERNEL_MODE_DATA_SEGMENT, kernel_stack+KERNEL_STACK_SIZE);
+	unsigned long top;
+
+	kernel_stack = (unsigned long)tss_boot_stack;
+	memset(tss_boot_stack, 0, sizeof(tss_boot_stack));
+	top = (kernel_stack + sizeof(tss_boot_stack)) & ~0xFUL;
+	settss(7, KERNEL_MODE_DATA_SEGMENT, top);
 }
 
 static inline void load_tss(unsigned short selector)
@@ -2279,6 +2277,7 @@ void loadisr(void)
     setidt(79, (unsigned long)isr79, KERNEL_MODE_CODE_SEGMENT, 0xEE);
     setidt(106, (unsigned long)isr106, KERNEL_MODE_CODE_SEGMENT, 0xEE);
     setidt(128, (unsigned long)isr128, KERNEL_MODE_CODE_SEGMENT, 0xEE);
+    setidt(129, (unsigned long)kernelmode_entry_gate, KERNEL_MODE_CODE_SEGMENT, 0xEE);
 }
 
 /*
@@ -3291,8 +3290,6 @@ void test_irq_safe_critical_section(void)
 
 volatile unsigned long timertick = 0;
 
-
-
 const char *task_state_str1[] = {
     "TASK_UNUSED",
     "TASK_READY",
@@ -3300,6 +3297,15 @@ const char *task_state_str1[] = {
     "TASK_SLEEP",
     "TASK_BLOCK",
     "TASK_TERMINATE"
+};
+
+const char *task_state_str2[] = {
+    "NUL",  // TASK_UNUSED
+    "RDY",  // TASK_READY
+    "RUN",  // TASK_RUNNING
+    "SLP",  // TASK_SLEEP
+    "BLK",  // TASK_BLOCK
+    "STP"   // TASK_TERMINATE
 };
 
 const char *priority_str1[8] = {
@@ -3436,6 +3442,21 @@ void task_yield(int task_id)
     irq_restore(flags);
 }
 
+static void task_idle_wait(void)
+{
+    unsigned short cs;
+
+    __asm__ volatile ("mov %%cs, %0" : "=r"(cs));
+    if ((cs & 3) == 0)
+    {
+        __asm__ volatile ("sti\n\thlt" ::: "memory");
+    }
+    else
+    {
+        __asm__ volatile ("sti\n\tpause" ::: "memory");
+    }
+}
+
 void task_block(int task_id)
 {
     unsigned long flags;
@@ -3457,13 +3478,7 @@ void task_block(int task_id)
     {
         while (thread[task_id].state == TASK_BLOCK)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
     
@@ -3502,13 +3517,7 @@ void task_msleep(int task_id, unsigned long milliseconds)
     {
         while (thread[task_id].state == TASK_SLEEP)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
 }
@@ -3546,13 +3555,7 @@ void task_sleep(int task_id, unsigned long seconds)
     {
         while (thread[task_id].state == TASK_SLEEP)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
 }
@@ -3696,24 +3699,41 @@ void task_terminate(int task_id)
     if (thread[task_id].state == TASK_TERMINATE)
         return;
 	
+    int _child_id_2 = getchildthreadbyparent(task_id);
+    if (_child_id_2 != -1) task_terminate(_child_id_2);
+    
     if (thread[task_id].pid != -1)
     {
     	int _pid = thread[task_id].pid;
     	if (valid_process_id(_pid))
     	{
-    		int _tid = getthreadbypidnottid(_pid, task_id)->thread_id;
-    		if (thread[_tid].state != TASK_TERMINATE)
+    		int _child_id = getthreadidbyppid(_pid);
+    		if (_child_id != -1) task_terminate(_child_id);
+    		task_t *t1 = getthreadbypidnottid(_pid, task_id);
+    		if (t1 != NULL)
     		{
-    			int tids = get_thread_count_by_pid(_pid);
-    			if (tids > 0) 
+    			int _tid = t1->thread_id;
+    			if (valid_task_id(_tid))
     			{
-    				terminate_threads_by_parent(_pid);
-    			}
-    			thread[task_id].pid = -1;
-    			thread[_tid].pid = -1;    			
-    			task_terminate(task_id);
-    			task_terminate(_tid);
-    			return;
+					int _child_id_1 = getchildthreadbyparent(_tid);
+					if (_child_id_1 != -1) task_terminate(_child_id_1);
+				}
+    			if (thread[task_id].state != TASK_TERMINATE)
+    			{
+    				thread[task_id].pid = -1;	
+    				task_terminate(task_id);
+        		}
+    			if (thread[_tid].state != TASK_TERMINATE)
+    			{
+    				int tids = get_thread_count_by_pid(_pid);
+    				if (tids > 0) 
+    				{
+    					terminate_threads_by_parent(_pid);
+    				}
+    				thread[_tid].pid = -1;
+    				task_terminate(_tid);
+    				return;
+        		}
         	}
         }
     }
@@ -3755,13 +3775,7 @@ void task_terminate(int task_id)
     {
         for (;;)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
 }
@@ -3830,24 +3844,41 @@ void task_terminate_with_result(int task_id, void *result)
     if (thread[task_id].state == TASK_TERMINATE)
         return;
 	      
+    int _child_id_2 = getchildthreadbyparent(task_id);
+    if (_child_id_2 != -1) task_terminate_with_result(_child_id_2, result);
+    
     if (thread[task_id].pid != -1)
     {
     	int _pid = thread[task_id].pid;
     	if (valid_process_id(_pid))
     	{
-    		int _tid = getthreadbypidnottid(_pid, task_id)->thread_id;
-    		if (thread[_tid].state != TASK_TERMINATE)
+    		int _child_id = getthreadidbyppid(_pid);
+    		if (_child_id != -1) task_terminate_with_result(_child_id, result);
+    		task_t *t1 = getthreadbypidnottid(_pid, task_id);
+    		if (t1 != NULL)
     		{
-    			int tids = get_thread_count_by_pid(_pid);
-    			if (tids > 0) 
+    			int _tid = t1->thread_id;
+    			if (valid_task_id(_tid))
     			{
-    				terminate_threads_with_result_by_parent(_pid, result);
+    				int _child_id_1 = getchildthreadbyparent(_tid);
+    				if (_child_id_1 != -1) task_terminate_with_result(_child_id_1, result);
     			}
-    			thread[task_id].pid = -1;
-    			thread[_tid].pid = -1;    	
-    			task_terminate_with_result(task_id, result);
-    			task_terminate_with_result(_tid, result);
-    			return;
+    			if (thread[task_id].state != TASK_TERMINATE) 
+    			{
+    				thread[task_id].pid = -1;
+    				task_terminate_with_result(task_id, result);
+    			}
+    			if (thread[_tid].state != TASK_TERMINATE)
+    			{
+    				int tids = get_thread_count_by_pid(_pid);
+    				if (tids > 0) 
+    				{
+    					terminate_threads_with_result_by_parent(_pid, result);
+    				}
+    				thread[_tid].pid = -1;    	
+    				task_terminate_with_result(_tid, result);
+    				return;
+        		}
         	}
         }
     }
@@ -3883,13 +3914,7 @@ void task_terminate_with_result(int task_id, void *result)
     {
         for (;;)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
 }
@@ -3903,6 +3928,13 @@ int getpidbythreadid(int thread_id)
 			if (thread[i].thread_id == thread_id)
 			{
 				return thread[i].pid;
+			}
+		}
+		else
+		{
+			if (thread[i].thread_id == thread_id)
+			{
+				return thread[i].process_id;
 			}
 		}
 	}
@@ -3920,6 +3952,112 @@ int getthreadidbypid(int pid)
 				return thread[i].thread_id;
 			}
 		}
+		else
+		{
+			if (thread[i].process_id == pid)
+			{
+				return thread[i].thread_id;
+			}
+		}
+	}
+	return -1;	
+}
+
+int getppidbypid(int pid)
+{
+	for(int i=0;i<thread_count;i++)
+	{
+		if (thread[i].state != TASK_TERMINATE)
+		{
+			if (thread[i].pid == pid)
+			{
+				if (thread[i].parent != NULL) return thread[i].parent->pid;
+			}
+		}
+		else
+		{
+			if (thread[i].process_id == pid)
+			{
+				if (thread[i].parent != NULL) return thread[i].parent->process_id;
+			}
+		}
+	}
+	return -1;	
+}
+
+int isparentpid(int pid)
+{
+	for(int i=0;i<thread_count;i++)
+	{
+		if (thread[i].state != TASK_TERMINATE)
+		{
+			if (thread[i].parent != NULL)
+			{
+				if (thread[i].parent->pid == pid) return 1;
+			}
+		}
+		else
+		{
+			if (thread[i].parent != NULL)
+			{
+				if (thread[i].parent->process_id == pid) return 1;
+			}
+		}
+	}
+	return 0;	
+}
+
+int isparentthreadid(int thread_id)
+{
+	for(int i=0;i<thread_count;i++)
+	{
+		if (thread[i].parent != NULL)
+		{
+			if (thread[i].parent->thread_id == thread_id) return 1;
+		}
+	}
+	return 0;	
+}
+
+int getthreadidbyppid(int pid)
+{
+	for(int i=0;i<thread_count;i++)
+	{
+		if (thread[i].state != TASK_TERMINATE)
+		{
+			if (thread[i].parent != NULL)
+			{
+				if (thread[i].parent->pid == pid)
+				{
+					return thread[i].thread_id;
+				}
+			}
+		}
+		else
+		{
+			if (thread[i].parent != NULL)
+			{
+				if (thread[i].parent->process_id == pid)
+				{
+					return thread[i].thread_id;
+				}
+			}
+		}
+	}
+	return -1;	
+}
+
+int getchildthreadbyparent(int parent_tid)
+{
+	for(int i=0;i<thread_count;i++)
+	{
+		if (thread[i].parent != NULL)
+		{
+			if (thread[i].parent->thread_id == parent_tid)
+			{
+				return thread[i].thread_id;
+			}
+		}
 	}
 	return -1;	
 }
@@ -3932,19 +4070,36 @@ void pthread_exit(void *result)
 
     id = current_thread;
 	
+	int _child_id_1 = getchildthreadbyparent(id);
+	if (_child_id_1 != -1) task_terminate(_child_id_1);
+	
     if (thread[id].pid != -1)
     {
     	int _pid = thread[id].pid;
     	if (valid_process_id(_pid))
     	{
-    		int _tid = getthreadbypidnottid(_pid, id)->thread_id;
-    		if (thread[_tid].state != TASK_TERMINATE)
+			int _child_id = getthreadidbyppid(_pid);
+			if (_child_id != -1) task_terminate(_child_id);
+    		task_t *t1 = getthreadbypidnottid(_pid, id);
+    		if (t1 != NULL)
     		{
-    			thread[id].pid = -1;
-    			thread[_tid].pid = -1;
-    			task_terminate(id);
-    			task_terminate(_tid);
-    			return;
+    			int _tid = t1->thread_id;
+    			if (valid_task_id(_tid))
+    			{
+					int _child_id_2 = getchildthreadbyparent(_tid);
+					if (_child_id_2 != -1) task_terminate(_child_id_2);
+				}
+				if (thread[id].state != TASK_TERMINATE) 
+				{
+    				thread[id].pid = -1;
+    				task_terminate(id);
+				}
+    			if (thread[_tid].state != TASK_TERMINATE)
+    			{
+    				thread[_tid].pid = -1;
+    				task_terminate(_tid);
+    				return;
+        		}
         	}
         }
     }
@@ -3953,13 +4108,7 @@ void pthread_exit(void *result)
     {
         for (;;)
         {
-            __asm__ volatile (
-                "sti\n\t"
-                "hlt"
-                :
-                :
-                : "memory"
-            );
+            task_idle_wait();
         }
     }
 
@@ -3992,13 +4141,7 @@ void pthread_exit(void *result)
 
     for (;;)
     {
-        __asm__ volatile (
-            "sti\n\t"
-            "hlt"
-            :
-            :
-            : "memory"
-        );
+        task_idle_wait();
     }
 }
 
@@ -4049,13 +4192,7 @@ int pthread_join2(int thread_id, void **result)
 
     while (thread[thread_id].state != TASK_TERMINATE)
     {
-        __asm__ volatile (
-            "sti\n\t"
-            "hlt"
-            :
-            :
-            : "memory"
-        );
+        task_idle_wait();
     }
 
     flags = irq_save_disable();
@@ -4087,6 +4224,9 @@ void thread_bootstrap(void)
 
     t = &thread[current_thread];
 
+    //if (usermode && (int)t->thread_id != idle_thread_id)
+    //    switchtousermode();
+
     result = t->entry(t->param);
 
     pthread_exit(result);
@@ -4117,6 +4257,39 @@ void get_thread_list(unsigned long *thread_list, int *thread_list_count)
 			{
 				last_thread_id = thread[i2].thread_id;
 				thread_list[i] = thread[i2].thread_id;
+				i++;
+			}
+		}
+	}
+}
+
+void get_process_list(unsigned long *process_list, int *process_list_count)
+{
+	int p_cnt_a=0,i=0;
+	int last_process_id = -1;
+	if (thread_count == 0) return;
+	if (thread_count == 1) return;
+	for(int i1=1;i1<thread_count;i1++)
+	{
+		if (thread[i1].state != TASK_TERMINATE)
+		{
+			if (last_process_id != thread[i1].pid)
+			{
+				p_cnt_a++;
+				last_process_id = thread[i1].pid;
+			}
+		}
+	}
+	last_process_id = -1;
+	*process_list_count = p_cnt_a;
+	for(int i2=1;i2<thread_count;i2++)
+	{
+		if (thread[i2].state != TASK_TERMINATE)
+		{
+			if (last_process_id != thread[i2].pid)
+			{
+				last_process_id = thread[i2].pid;
+				process_list[i] = thread[i2].pid;
 				i++;
 			}
 		}
@@ -4257,13 +4430,7 @@ void task_return_trampoline(void)
 
     for (;;)
     {
-        __asm__ volatile (
-            "sti\n\t"
-            "hlt"
-            :
-            :
-            : "memory"
-        );
+        task_idle_wait();
     }
 }
 
@@ -4423,12 +4590,19 @@ int set_thread_area(struct user_desc *u_info)
 
     limit = u_info->limit;
 
+    unsigned char access;
+
+    access = 0xF0;
+    if (u_info->seg_not_present)
+        access = (unsigned char)(access & (unsigned char)~0x80);
+    if (!u_info->read_exec_only)
+        access = (unsigned char)(access | 0x02);
+
     setgdt(
         TLS_GDT_INDEX,
         limit,
         base,
-        (u_info->seg_not_present ? 0x12 : 0x92) |
-        (u_info->read_exec_only ? 0x00 : 0x02),
+        access,
         u_info->limit_in_pages
             ? 0xC0
             : 0x40
@@ -4525,8 +4699,20 @@ int tls_set(unsigned long offset, const void *src, unsigned long size)
     return TRUE;
 }
 
+static void task_apply_tss(const task_t *t)
+{
+    unsigned long top;
 
+    if (t != NULL && t->kernel_stack != NULL && t->kernel_stack_size >= 64)
+        top = (unsigned long)t->kernel_stack + t->kernel_stack_size;
+    else if (kernel_stack != 0)
+        top = kernel_stack + KERNEL_STACK_SIZE;
+    else
+        return;
 
+    top &= ~0xFUL;
+    settss_stack(KERNEL_MODE_DATA_SEGMENT, top);
+}
 
 context_t *schedule(context_t *current_frame)
 {
@@ -4609,15 +4795,11 @@ context_t *schedule(context_t *current_frame)
                     ? next_task->kernel_ds 
                     : next_task->user_ds) 
                     : next_task->kernel_ds);
+            (void)next_ds;
             tls_load_task(next_task);
-            //settss_stack(next_ds, (unsigned long)next_task->stack_top);// KERNEL_STACK_TOP);
-            //return next_task->esp;
-            //tls_load_task(next_task);
-
-			if (schd_usermode &&
-        next_task->thread_id != idle_thread_id) settss_stack(KERNEL_MODE_DATA_SEGMENT, (unsigned long)next_task->kernel_stack +	next_task->kernel_stack_size);			
-			else settss_stack(USER_MODE_DATA_SEGMENT, (unsigned long)next_task->stack +	next_task->stack_size);
-			
+            task_apply_tss(next_task);
+            if (next_task->esp == NULL)
+                return current_frame;
 			return next_task->esp;
         }
 
@@ -4659,11 +4841,11 @@ context_t *schedule(context_t *current_frame)
                 ? next_task->kernel_ds 
                 : next_task->user_ds) 
                 : next_task->kernel_ds);
+        (void)next_ds;
         tls_load_task(next_task);
-        //settss_stack(next_ds, (unsigned long)next_task->stack_top);// KERNEL_STACK_TOP);        
-		if (schd_usermode &&
-        next_task->thread_id != idle_thread_id) settss_stack(KERNEL_MODE_DATA_SEGMENT, (unsigned long)next_task->kernel_stack +	next_task->kernel_stack_size);
-		else settss_stack(USER_MODE_DATA_SEGMENT, (unsigned long)next_task->stack +	next_task->stack_size);
+        task_apply_tss(next_task);
+        if (next_task->esp == NULL)
+            return current_frame;
         return next_task->esp;
     }
     
@@ -4684,9 +4866,9 @@ context_t *schedule(context_t *current_frame)
         thread[idle_thread_id].state = TASK_RUNNING;
         thread[idle_thread_id].quantum_left = 1;
         tls_load_task(&thread[current_thread]);
-        //settss_stack(KERNEL_MODE_DATA_SEGMENT, (unsigned long)thread[idle_thread_id].stack_top);
-        //tls_load_task(&thread[current_thread]);
-        settss_stack(KERNEL_MODE_DATA_SEGMENT, (unsigned long)thread[idle_thread_id].kernel_stack + thread[idle_thread_id].kernel_stack_size);
+        task_apply_tss(&thread[idle_thread_id]);
+        if (thread[idle_thread_id].esp == NULL)
+            return current_frame;
         return thread[idle_thread_id].esp;
     }
 
@@ -4697,15 +4879,20 @@ void context_switch(void);
 
 void* timer_handler(void* current_esp) 
 {
+    void *next;
+
     timertick++;
 
-	//if (usermode) return current_esp;
-    if (!scheduler_initialized)
+    if (!scheduler_initialized || current_esp == NULL)
         return current_esp;
 
     scheduler_tick();
 
-    return schedule(current_esp);
+    next = schedule(current_esp);
+    if (next == NULL)
+        return current_esp;
+
+    return next;
 }
 
 
@@ -4731,15 +4918,7 @@ void idle(void)
 {
     for (;;)
     {
-    	asm volatile (
-        	"sti\n\t"
-        	"hlt"
-        	:
-        	:
-        	: "memory"
-    	);
-        //enable_interrupt();
-        //halt();
+        task_idle_wait();
     }
 }
 
@@ -4831,6 +5010,7 @@ int execvThread(void *param)
 		return -1;
 	}	
 	thread[current_thread].thread_id = _id;
+	thread[current_thread].process_id = _pid;
 	thread[current_thread].pid = _pid;
 	thread[current_thread].kernel_cs = k_cs;
 	thread[current_thread].kernel_ds = k_ds;
@@ -5550,7 +5730,6 @@ int inittaskframe(
     unsigned long frame_index;
     unsigned long current_cs;
     unsigned long current_ds;
-    unsigned long user_stack;
     context_t *frame;
 
     (void)entry;
@@ -5576,17 +5755,8 @@ int inittaskframe(
     t->user_cs = USER_MODE_CODE_SEGMENT;
     t->user_ds = USER_MODE_DATA_SEGMENT;
 
-    if (usermode &&
-        t->thread_id != idle_thread_id)
-    {
-        current_cs = t->user_cs;
-        current_ds = t->user_ds;
-    }
-    else
-    {
-        current_cs = t->kernel_cs;
-        current_ds = t->kernel_ds;
-    }
+    current_cs = t->kernel_cs;
+    current_ds = t->kernel_ds;
 
     frame_index = words - CONTEXT_WORDS;
 
@@ -5621,23 +5791,8 @@ int inittaskframe(
     frame->cs = current_cs;
 
     frame->eflags = 0x0202;
-
-    if (current_cs == USER_MODE_CODE_SEGMENT &&
-        t->thread_id != idle_thread_id)
-    {
-        user_stack =
-            (unsigned long)&t->stack[
-                words - CONTEXT_WORDS - 16
-            ];
-
-        frame->useresp = user_stack;
-        frame->ss = USER_MODE_DATA_SEGMENT;
-    }
-    else
-    {
-        frame->useresp = 0;
-        frame->ss = KERNEL_MODE_DATA_SEGMENT;
-    }
+    frame->useresp = (unsigned long)&t->stack[0] + (frame_index * sizeof(unsigned long));
+    frame->ss = KERNEL_MODE_DATA_SEGMENT;
 
     t->stack_top =
         &t->stack[frame_index];
@@ -5737,7 +5892,7 @@ int kernel_createthread(task_t *handle_instance,
     task_t *parent;
     task_t *prev;
     
-    thread_entry_t entry = (thread_entry_t)&start_address[0];
+    thread_entry_t entry = (thread_entry_t)start_address;
 
     (void)attributes;
 
@@ -5753,18 +5908,9 @@ int kernel_createthread(task_t *handle_instance,
     if (stack_size < 0)
         return 0;
         
-    if (usermode) 
-    {	
-    	if (stack_size > (int)sizeof(thread[0].stack))
-        	return 0;            
-	
-    }
-    else
-    {
-    	if (stack_size > (int)sizeof(thread[0].kernel_stack))
-        	return 0;        
-            
-    }
+    if (stack_size > (int)sizeof(thread[0].stack))
+        return 0;
+
     irq_flags = irq_save_disable();
 
     new_id = thread_count;
@@ -5794,9 +5940,9 @@ int kernel_createthread(task_t *handle_instance,
 
     memset(t, 0, sizeof(task_t));
     
-    t->kernel_stack_size = TASK_KERNEL_STACK_SIZE;
+    t->kernel_stack_size = KERNEL_STACK_SIZE;
 
-	t->kernel_stack = (uint32_t *)kmalloc(t->kernel_stack_size);
+	t->kernel_stack = (uint32_t *)kmalloc_a(t->kernel_stack_size);
 	
 	if (t->kernel_stack == NULL)
 	{
@@ -5807,14 +5953,7 @@ int kernel_createthread(task_t *handle_instance,
 	
 	memset(t->kernel_stack, 0, t->kernel_stack_size);
     
-    t->stack_size = STACK_SIZE;
-
-	if (t->stack == NULL)
-	{
-    	memset(t, 0, sizeof(task_t));
-    	irq_restore(irq_flags);
-    	return 0;
-	}
+    t->stack_size = sizeof(t->stack);
 	
 	memset(t->stack, 0, t->stack_size);
     
@@ -5855,8 +5994,16 @@ int kernel_createthread(task_t *handle_instance,
 	t->result = NULL;
 	t->joiner_id = -1;
 	t->joined = FALSE;
-	if (flags & TASK_PROCESS) t->pid = process_count;
-	else t->pid = -1;
+	if (flags & TASK_PROCESS) 
+	{
+		t->pid = process_count;
+		t->process_id = process_count;
+	}
+	else 
+	{
+		t->pid = -1;
+		t->process_id = -1;
+	}
 	
 	t->brk = (void*)malloc(4096);
 	
@@ -5942,14 +6089,19 @@ int sys_createthread(createthread_args_t *uargs)
 
 void init_multitask(void)
 {
-    int idle_id;
+    int idle_id = -1;
     task_t idle_thread;
     disable_interrupt();
     thread_count = 0;
     scheduler_initialized = 0;
     thread = (task_t*)kmalloc(MAX_TASKS*sizeof(task_t));
-    //tlist = (int*)kcalloc(MAX_TASKS, sizeof(int));
-    createthread(
+    if (thread == NULL)
+    {
+        enable_interrupt();
+        return;
+    }
+    //memset(thread, 0, MAX_TASKS * sizeof(task_t));
+    kernel_createthread(
         &idle_thread,
         "idle",
     	0,
@@ -5958,13 +6110,19 @@ void init_multitask(void)
         NULL,
         TASK_PROCESS,
         &idle_id
-    );    
+    );
     idle_thread_id = idle_id;
     current_thread = idle_id;
-    tls_load_task(&thread[current_thread]);
-    set_task_priority(idle_id, PRIORITY_IDLE);
-    enable_interrupt();
+    if (valid_task_id(idle_id))
+    {
+        thread[idle_id].state = TASK_RUNNING;
+        thread[idle_id].quantum_left = 1;
+        tls_load_task(&thread[current_thread]);
+        task_apply_tss(&thread[idle_id]);
+        set_task_priority(idle_id, PRIORITY_IDLE);
+    }
     scheduler_initialized = 1;
+    enable_interrupt();
     
     
     //create_task(taskA);
@@ -7324,8 +7482,6 @@ int sys_fork_handler(registers_t *parent_frame)
     unsigned long parent_end;
     unsigned long child_base;
     unsigned long child_end;
-    unsigned long parent_esp;
-    unsigned long child_esp;
     unsigned long stack_offset;
     context_t *child_frame;
 
@@ -7355,11 +7511,10 @@ int sys_fork_handler(registers_t *parent_frame)
     memcpy(child, parent, sizeof(task_t));
 	
 	child->kernel_stack = NULL;
-	child->kernel_stack_size = 0;
 	
-	child->kernel_stack_size = TASK_KERNEL_STACK_SIZE;
+	child->kernel_stack_size = KERNEL_STACK_SIZE;
 	
-	child->kernel_stack = (uint32_t *)kmalloc(child->kernel_stack_size);
+	child->kernel_stack = (uint32_t *)kmalloc_a(child->kernel_stack_size);
 	
 	if (child->kernel_stack == NULL)
 	{
@@ -7377,16 +7532,11 @@ int sys_fork_handler(registers_t *parent_frame)
     	irq_restore(flags);
     	return -1;
 	}
-	
-    /*
-	if (!Weate(child))
-	{
-    	irq_restore(flags);
-    	return -1;
-	}
-	*/
+
+    push_module(child->name);
 
     child->thread_id = child_id;
+    child->process_id = _pid;
     child->pid = _pid;
     child->state = TASK_READY;
     child->parent = parent;
@@ -7411,54 +7561,70 @@ int sys_fork_handler(registers_t *parent_frame)
     child_base = (unsigned long)&child->stack[0];
     child_end  = child_base + sizeof(child->stack);
     stack_offset = child_base - parent_base;
-    parent_esp = parent_frame->esp;
-    child_esp = parent_esp + stack_offset;
 
-    if (parent_frame->esp >= parent_base &&
-        parent_frame->esp < parent_end)
-    {
-        child_esp = parent_frame->esp + stack_offset;
-    }
+    unsigned long parent_resume_esp;
+    unsigned long copy_bytes;
+    unsigned long ktop;
+    unsigned short parent_rpl;
 
-    child_frame = (context_t *)(child_end - sizeof(context_t));
+    parent_rpl = (unsigned short)(parent_frame->cs & 3);
+    if (parent_rpl == 3)
+        parent_resume_esp = parent_frame->useresp;
+    else
+        parent_resume_esp = (unsigned long)&parent_frame->eflags + sizeof(unsigned long);
 
+    copy_bytes = 2048;
+    ktop = ((unsigned long)child->kernel_stack + child->kernel_stack_size) & ~0xFUL;
+    if (sizeof(context_t) + copy_bytes + 16 > child->kernel_stack_size)
+        copy_bytes = 256;
+        
+    child_frame = (context_t *)(ktop - sizeof(context_t) - copy_bytes);
     memset(child_frame, 0, sizeof(context_t));
-    
-    child_frame->gs = parent_frame->ds;
-    child_frame->fs = parent_frame->ds;
-    child_frame->es = parent_frame->ds;
-    child_frame->ds = parent_frame->ds;
+
+    child_frame->gs = parent_rpl ? child->user_ds : child->kernel_ds;
+    child_frame->fs = TLS_SELECTOR;
+    child_frame->es = child_frame->gs;
+    child_frame->ds = parent_frame->ds ? parent_frame->ds : child_frame->gs;
     child_frame->edi = parent_frame->edi;
     child_frame->esi = parent_frame->esi;
     child_frame->ebp = parent_frame->ebp;
-
-    if (child_frame->ebp >= parent_base &&
-        child_frame->ebp < parent_end)
-    {
-        child_frame->ebp += stack_offset;
-    }
-    
-    child_frame->esp = child_esp;
     child_frame->ebx = parent_frame->ebx;
     child_frame->edx = parent_frame->edx;
     child_frame->ecx = parent_frame->ecx;
     child_frame->eax = 0;
     child_frame->eip = parent_frame->eip;
-    child_frame->cs = parent_frame->cs;
-    child_frame->eflags = parent_frame->eflags;
-    child_frame->useresp = parent_frame->useresp;
-    child_frame->ss = parent_frame->ss;
-    
-    if (child_frame->useresp >= parent_base &&
-        child_frame->useresp < parent_end)
+    child_frame->cs = parent_frame->cs ? parent_frame->cs : child->kernel_cs;
+    child_frame->eflags = (parent_frame->eflags | 0x202UL) & ~0x4000UL;
+
+    if (parent_rpl == 3)
     {
-        child_frame->useresp += stack_offset;
+        child_frame->eflags |= 0x3000UL;
+        child_frame->ss = child->user_ds;
+        if (parent_resume_esp >= parent_base && parent_resume_esp < parent_end)
+            child_frame->useresp = parent_resume_esp + stack_offset;
+        else
+            child_frame->useresp = child_end - 16;
+        if (child_frame->ebp >= parent_base && child_frame->ebp < parent_end)
+            child_frame->ebp += stack_offset;
+        child_frame->esp = child_frame->useresp;
     }
-    
+    else
+    {
+        memcpy(&child_frame->useresp, (const void *)parent_resume_esp, copy_bytes);
+        if (child_frame->ebp >= parent_resume_esp &&
+            child_frame->ebp < parent_resume_esp + copy_bytes)
+        {
+            child_frame->ebp = (unsigned long)&child_frame->useresp +
+                (child_frame->ebp - parent_resume_esp);
+        }
+        child_frame->esp = (unsigned long)&child_frame->useresp;
+        child_frame->ss = child->kernel_ds;
+    }
+
     child->esp = child_frame;
     memcpy(&child->context, child_frame, sizeof(context_t));
 
-    child->stack_top = (unsigned long *)child_end;
+    child->stack_top = (uint32_t *)((unsigned long)child_frame + sizeof(context_t));
     child->stack_size = sizeof(child->stack);
     parent_frame->eax = _pid;
 
@@ -7469,7 +7635,6 @@ int sys_fork_handler(registers_t *parent_frame)
 
     return _pid;
 }
-
 
 int sys_brk_handler(void *_addr)
 {
@@ -11873,6 +12038,61 @@ void print_string_field(int x, int y, const char *s, const char *t, char color)
     print_string(x+xx, y, t, color);
 }
 
+void print_spaces(int n)
+{
+    for (int i = 0; i < n; i++)
+        putchar(' ');
+}
+
+int number_length(int n)
+{
+    int len = 1;
+
+    if (n < 0)
+        len++;
+
+    while (n >= 10 || n <= -10) {
+        n /= 10;
+        len++;
+    }
+
+    return len;
+}
+
+void print_number_str(int n)
+{
+    if (n < 0) {
+        putchar('-');
+        n = -n;
+    }
+
+    if (n >= 10)
+        print_number_str(n / 10);
+
+    putchar('0' + (n % 10));
+}
+
+void print_number_left(int n, int width)
+{
+    print_number_str(n);
+
+    int len = number_length(n);
+
+    print_spaces(width - len);
+}
+
+void print_string_left(const char *str, int width)
+{
+    int len = 0;
+
+    while (str[len] != '\0')
+        len++;
+
+    printk("%s", str);
+
+    print_spaces(width - len);
+}
+
 
 
 
@@ -11896,12 +12116,13 @@ void printContext(int thread_id)
 	};
     unsigned char tcolor;
 	task_t *t = (task_t*)&thread[thread_id];
-	if (t->state == TASK_TERMINATE) tcolor = 0x0C;
+	if ((t->state == TASK_TERMINATE) || (t->state == TASK_UNUSED)) tcolor = 0x0C;
 	else tcolor = 0x0A;
+    int process_id = getpidbythreadid(thread_id);
 	print_number_field(0, 12, "Thread Count: ", thread_count, tcolor);
 	print_number_field(0, 13, "Thread ID: ", thread_id, tcolor);
 	print_string_field(0, 14, "Name: ", t->name, tcolor);
-	if (t->pid >= 0) print_number_field(34, 12, "Process ID: ", t->pid, tcolor);
+	if (process_id >= 0) print_number_field(34, 12, "Process ID: ", process_id, tcolor);
 	else print_string_field(34, 12, "            ", "        ", tcolor);
 	print_string_field(34, 13, "State: ", task_state_str[t->state], tcolor);
 	print_string_field(34, 14, "Priority: ", priority_str[t->priority], tcolor);
@@ -12508,6 +12729,25 @@ int task_new_test_empty_count = 0;
 void taskEmpty(void *param)
 {
 	task_new_test_empty_count++;
+	while(1);
+}
+
+
+int proc_new_test_empty_count = 0;
+
+void procEmpty(void *param)
+{
+	proc_new_test_empty_count++;
+	while(1);
+}
+
+void procForkEmpty(void *param)
+{
+	char tmpname[256];
+	proc_new_test_empty_count++;
+	sprintk(tmpname, "fork_app_%04d", proc_new_test_empty_count);
+	int new_pid = sys_fork();
+	if (new_pid >= 0) strcpy(thread[current_thread].name, tmpname);
 	while(1);
 }
 
@@ -14202,6 +14442,38 @@ int main(void)
     						);
 				}
 				else
+				if (strcmp(argv[0], "createprocess") == 0)
+				{
+					char tmpname[256];
+					sprintk(tmpname, "app_new_%02d\0", proc_new_test_empty_count+1);
+					if (strcmp(argv[1], "-f") == 0) 
+					{
+						createthread(
+        							0,
+        							tmpname,
+    								0,
+    								0,
+        							(void*)procForkEmpty,
+        							NULL,
+        							TASK_PROCESS,
+        							0
+    							);
+    				}
+    				else
+    				{
+						createthread(
+        							0,
+        							tmpname,
+    								0,
+    								0,
+        							(void*)procEmpty,
+        							NULL,
+        							TASK_PROCESS,
+        							0
+    							);
+    				}
+				}
+				else
 				if (strcmp(argv[0], "threadtest") == 0)
 				{
 					if (scheduler_initialized == 0)
@@ -14241,6 +14513,82 @@ int main(void)
 							}
 						}
 						free(tlist_tmp);
+					}
+				}
+				else
+				if (strcmp(argv[0], "kill") == 0)
+				{
+					if (scheduler_initialized == 0)
+					{
+						printk("Has not multitasking enabled yet.\n");
+					}
+					else
+					{
+						if (argc > 1)
+						{
+							int _pid = atol(argv[1]);
+							if ((_pid > 0) && (_pid < process_count))
+							{
+								task_t *t = getthreadbypid(_pid);
+								if (t != NULL)
+								{
+									task_terminate(t->thread_id);
+								}
+								else
+								{
+									printk("kill: (%d) - No such process\n", _pid);
+								}
+							}
+							else
+							{
+								printk("kill: (%d) - No such process\n", _pid);
+							}
+						}
+						else
+						{
+							printk("kill: usage: kill pid | jobspec\n");
+						}
+					}
+				}
+				else
+				if (strcmp(argv[0], "ps") == 0)
+				{
+					if (scheduler_initialized == 0)
+					{
+						printk("Has not multitasking enabled yet.\n");
+					}
+					else
+					{
+						int plist_tmp_cnt=0;
+						unsigned long *plist_tmp = (unsigned long *)malloc(MAX_TASKS);
+						get_process_list(plist_tmp, &plist_tmp_cnt);
+    					print_string_left("PID", 8);
+    					print_string_left("PPID", 8);
+    					print_string_left("STATE", 8);
+    					print_string_left("COMMAND", 20);
+    					putchar('\n');
+						for(int t_i=0;t_i<plist_tmp_cnt;t_i++)
+						{
+							int process_id_l = plist_tmp[t_i];
+							task_t *thread_task_1 = getthreadbypid(process_id_l);
+							if (thread_task_1 != ((void*)0))
+							{
+								if ((thread_task_1->state != TASK_TERMINATE) && (thread_task_1->state != TASK_UNUSED))
+								{
+									int l_ppid = -1;
+									int l_pid = thread_task_1->pid;
+									if (thread_task_1->parent != NULL) l_ppid = thread_task_1->parent->pid;
+									else l_ppid = -1;									
+									print_number_left(l_pid, 8);
+    								if (l_ppid != -1) print_number_left(l_ppid, 8);
+    								else print_string_left("   ", 8);
+    								print_string_left(task_state_str2[thread_task_1->state], 8);
+    								print_string_left(thread_task_1->name, 20);
+    								putchar('\n');
+								}
+							}
+						}
+						free(plist_tmp);
 					}
 				}
 				else
@@ -14771,41 +15119,27 @@ int main(void)
 				else
 				if (strcmp(argv[0], "delay") == 0)
 				{
-					if (usermode == 1)
+					if (argc > 1) 
 					{
-						printk("Cannot execute this command.\n");
+						msleep(atol(argv[1]));
 					}
 					else
 					{
-						if (argc > 1) 
-						{
-							msleep(atol(argv[1]));
-						}
-						else
-						{
-							msleep(1000);
-						}
+						msleep(1000);
 					}
 				}
 				else
 				if (strcmp(argv[0], "sleep") == 0)
 				{
-					if (usermode == 1)
+					if (argc > 1) 
 					{
-						printk("Cannot execute this command.\n");
+						sleep(atol(argv[1]));
 					}
 					else
 					{
-						if (argc > 1) 
-						{
-							sleep(atol(argv[1]));
-						}
-						else
-						{
-							sleep(1);
-						}
+						sleep(1);
 					}
-				}/*
+				}
 				else
 				if (strcmp(argv[0], "kernelmode") == 0)
 				{
@@ -14839,7 +15173,7 @@ int main(void)
     				//tmp_flags = irq_save_disable();
     				test_realmode();
     				//irq_restore(tmp_flags);
-				}*/
+				}
 				else 
 				if (strcmp(argv[0], "meminfo") == 0)
 				{
