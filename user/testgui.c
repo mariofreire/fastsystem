@@ -1,3 +1,8 @@
+// Fast System Kernel - Graphical User Interface Test
+// Author: Mario Freire
+// Version 0.1
+// Copyright (C) 2026 DSP Interactive.
+
 #include <io.h>
 #include <conio.h>
 #include <stdio.h>
@@ -171,32 +176,120 @@ unsigned char *double_buffer;
 
 int screen_lock = 0;
 
+static void free_framebuffers(void)
+{
+    free(frame_buffer);
+    free(double_buffer);
+    frame_buffer = NULL;
+    double_buffer = NULL;
+    screen_lock = 0;
+}
 
-static const uint8_t vga_palette[256][3] = {
-    {  0,   0,   0}, {  0,   0, 170}, {  0, 170,   0}, {  0, 170, 170},
-    {170,   0,   0}, {170,   0, 170}, {170,  85,   0}, {170, 170, 170},
-    { 85,  85,  85}, { 85,  85, 255}, { 85, 255,  85}, { 85, 255, 255},
-    {255,  85,  85}, {255,  85, 255}, {255, 255,  85}, {255, 255, 255},
-
-    {  2,   2,   2}, {  0,   0, 170}, {  0, 170,   0}, {  0, 170, 170},
-    {170,   0,   0}, {170,   0, 170}, {170,  85,   0}, {170, 170, 170},
-    { 85,  85,  85}, { 85,  85, 255}, { 85, 255,  85}, { 85, 255, 255},
-    {255,  85,  85}, {255,  85, 255}, {255, 255,  85}, {255, 255, 255},
-
-    {  4,   4,   4}, {  0,   0,  170}, {  0, 170,   0}, {  0, 170, 170},
-    {170,   0,   0}, {170,   0, 170}, {170,  85,   0}, {170, 170, 170},
-    { 85,  85,  85}, { 85,  85, 255}, { 85, 255,  85}, { 85, 255, 255},
-    {255,  85,  85}, {255,  85, 255}, {255, 255,  85}, {255, 255, 255},
-
-    {  8,   8,   8}, {  0,   0, 170}, {  0, 170,   0}, {  0, 170, 170},
-    {170,   0,   0}, {170,   0, 170}, {170,  85,   0}, {170, 170, 170},
-    { 85,  85,  85}, { 85,  85, 255}, { 85, 255,  85}, { 85, 255, 255},
-    {255,  85,  85}, {255,  85, 255}, {255, 255,  85}, {255, 255, 255},
-
-    /* ... */
+/*
+static const uint8_t vga_mode12_palette[16][3] =
+{
+	{ 0x00, 0x00, 0x00 },
+	{ 0x00, 0x00, 0xAA },
+	{ 0x00, 0xAA, 0x00 },
+	{ 0x00, 0xAA, 0xAA },
+	{ 0xAA, 0x00, 0x00 },
+	{ 0xAA, 0x00, 0xAA },
+	{ 0xAA, 0x55, 0x00 },
+	{ 0xAA, 0xAA, 0xAA },
+	{ 0x55, 0x55, 0x55 },
+	{ 0x55, 0x55, 0xFF },
+	{ 0x55, 0xFF, 0x55 },
+	{ 0x55, 0xFF, 0xFF },
+	{ 0xFF, 0x55, 0x55 },
+	{ 0xFF, 0x55, 0xFF },
+	{ 0xFF, 0xFF, 0x55 },
+	{ 0xFF, 0xFF, 0xFF }
 };
+*/
 
+static const uint8_t vga_palette[256][3] =
+{
+	{0x00,0x00,0x00},{0x00,0x00,0xAA},{0x00,0xAA,0x00},{0x00,0xAA,0xAA},
+	{0xAA,0x00,0x00},{0xAA,0x00,0xAA},{0xAA,0x55,0x00},{0xAA,0xAA,0xAA},
+	{0x55,0x55,0x55},{0x55,0x55,0xFF},{0x55,0xFF,0x55},{0x55,0xFF,0xFF},
+	{0xFF,0x55,0x55},{0xFF,0x55,0xFF},{0xFF,0xFF,0x55},{0xFF,0xFF,0xFF},
 
+	{0x00,0x00,0x00},{0x14,0x14,0x14},{0x20,0x20,0x20},{0x2C,0x2C,0x2C},
+	{0x38,0x38,0x38},{0x45,0x45,0x45},{0x51,0x51,0x51},{0x61,0x61,0x61},
+	{0x71,0x71,0x71},{0x82,0x82,0x82},{0x92,0x92,0x92},{0xA2,0xA2,0xA2},
+	{0xB6,0xB6,0xB6},{0xCB,0xCB,0xCB},{0xE3,0xE3,0xE3},{0xFF,0xFF,0xFF},
+
+	{0x00,0x00,0xFF},{0x41,0x00,0xFF},{0x7D,0x00,0xFF},{0xBE,0x00,0xFF},
+	{0xFF,0x00,0xFF},{0xFF,0x00,0xBE},{0xFF,0x00,0x7D},{0xFF,0x00,0x41},
+	{0xFF,0x00,0x00},{0xFF,0x41,0x00},{0xFF,0x7D,0x00},{0xFF,0xBE,0x00},
+	{0xFF,0xFF,0x00},{0xBE,0xFF,0x00},{0x7D,0xFF,0x00},{0x41,0xFF,0x00},
+
+	{0x00,0xFF,0x00},{0x00,0xFF,0x41},{0x00,0xFF,0x7D},{0x00,0xFF,0xBE},
+	{0x00,0xFF,0xFF},{0x00,0xBE,0xFF},{0x00,0x7D,0xFF},{0x00,0x41,0xFF},
+	{0x7D,0x7D,0xFF},{0x9E,0x7D,0xFF},{0xBE,0x7D,0xFF},{0xDF,0x7D,0xFF},
+	{0xFF,0x7D,0xFF},{0xFF,0x7D,0xDF},{0xFF,0x7D,0xBE},{0xFF,0x7D,0x9E},
+
+	{0xFF,0x7D,0x7D},{0xFF,0x9E,0x7D},{0xFF,0xBE,0x7D},{0xFF,0xDF,0x7D},
+	{0xFF,0xFF,0x7D},{0xDF,0xFF,0x7D},{0xBE,0xFF,0x7D},{0x9E,0xFF,0x7D},
+	{0x7D,0xFF,0x7D},{0x7D,0xFF,0x9E},{0x7D,0xFF,0xBE},{0x7D,0xFF,0xDF},
+	{0x7D,0xFF,0xFF},{0x7D,0xDF,0xFF},{0x7D,0xBE,0xFF},{0x7D,0x9E,0xFF},
+
+	{0xB6,0xB6,0xFF},{0xC7,0xB6,0xFF},{0xDB,0xB6,0xFF},{0xEB,0xB6,0xFF},
+	{0xFF,0xB6,0xFF},{0xFF,0xB6,0xEB},{0xFF,0xB6,0xDB},{0xFF,0xB6,0xC7},
+	{0xFF,0xB6,0xB6},{0xFF,0xC7,0xB6},{0xFF,0xDB,0xB6},{0xFF,0xEB,0xB6},
+	{0xFF,0xFF,0xB6},{0xEB,0xFF,0xB6},{0xDB,0xFF,0xB6},{0xC7,0xFF,0xB6},
+
+	{0xB6,0xFF,0xB6},{0xB6,0xFF,0xC7},{0xB6,0xFF,0xDB},{0xB6,0xFF,0xEB},
+	{0xB6,0xFF,0xFF},{0xB6,0xEB,0xFF},{0xB6,0xDB,0xFF},{0xB6,0xC7,0xFF},
+	{0x00,0x00,0x71},{0x1C,0x00,0x71},{0x38,0x00,0x71},{0x55,0x00,0x71},
+	{0x71,0x00,0x71},{0x71,0x00,0x55},{0x71,0x00,0x38},{0x71,0x00,0x1C},
+
+	{0x71,0x00,0x00},{0x71,0x1C,0x00},{0x71,0x38,0x00},{0x71,0x55,0x00},
+	{0x71,0x71,0x00},{0x55,0x71,0x00},{0x38,0x71,0x00},{0x1C,0x71,0x00},
+	{0x00,0x71,0x00},{0x00,0x71,0x1C},{0x00,0x71,0x38},{0x00,0x71,0x55},
+	{0x00,0x71,0x71},{0x00,0x55,0x71},{0x00,0x38,0x71},{0x00,0x1C,0x71},
+
+	{0x38,0x38,0x71},{0x45,0x38,0x71},{0x55,0x38,0x71},{0x61,0x38,0x71},
+	{0x71,0x38,0x71},{0x71,0x38,0x61},{0x71,0x38,0x55},{0x71,0x38,0x45},
+	{0x71,0x38,0x38},{0x71,0x45,0x38},{0x71,0x55,0x38},{0x71,0x61,0x38},
+	{0x71,0x71,0x38},{0x61,0x71,0x38},{0x55,0x71,0x38},{0x45,0x71,0x38},
+
+	{0x38,0x71,0x38},{0x38,0x71,0x45},{0x38,0x71,0x55},{0x38,0x71,0x61},
+	{0x38,0x71,0x71},{0x38,0x61,0x71},{0x38,0x55,0x71},{0x38,0x45,0x71},
+	{0x51,0x51,0x71},{0x59,0x51,0x71},{0x61,0x51,0x71},{0x69,0x51,0x71},
+	{0x71,0x51,0x71},{0x71,0x51,0x69},{0x71,0x51,0x61},{0x71,0x51,0x59},
+
+	{0x71,0x51,0x51},{0x71,0x59,0x51},{0x71,0x61,0x51},{0x71,0x69,0x51},
+	{0x71,0x71,0x51},{0x69,0x71,0x51},{0x61,0x71,0x51},{0x59,0x71,0x51},
+	{0x51,0x71,0x51},{0x51,0x71,0x59},{0x51,0x71,0x61},{0x51,0x71,0x69},
+	{0x51,0x71,0x71},{0x51,0x69,0x71},{0x51,0x61,0x71},{0x51,0x59,0x71},
+
+	{0x00,0x00,0x41},{0x10,0x00,0x41},{0x20,0x00,0x41},{0x30,0x00,0x41},
+	{0x41,0x00,0x41},{0x41,0x00,0x30},{0x41,0x00,0x20},{0x41,0x00,0x10},
+	{0x41,0x00,0x00},{0x41,0x10,0x00},{0x41,0x20,0x00},{0x41,0x30,0x00},
+	{0x41,0x41,0x00},{0x30,0x41,0x00},{0x20,0x41,0x00},{0x10,0x41,0x00},
+
+	{0x00,0x41,0x00},{0x00,0x41,0x10},{0x00,0x41,0x20},{0x00,0x41,0x30},
+	{0x00,0x41,0x41},{0x00,0x30,0x41},{0x00,0x20,0x41},{0x00,0x10,0x41},
+	{0x20,0x20,0x41},{0x28,0x20,0x41},{0x30,0x20,0x41},{0x38,0x20,0x41},
+	{0x41,0x20,0x41},{0x41,0x20,0x38},{0x41,0x20,0x30},{0x41,0x20,0x28},
+
+	{0x41,0x20,0x20},{0x41,0x28,0x20},{0x41,0x30,0x20},{0x41,0x38,0x20},
+	{0x41,0x41,0x20},{0x38,0x41,0x20},{0x30,0x41,0x20},{0x28,0x41,0x20},
+	{0x20,0x41,0x20},{0x20,0x41,0x28},{0x20,0x41,0x30},{0x20,0x41,0x38},
+	{0x20,0x41,0x41},{0x20,0x38,0x41},{0x20,0x30,0x41},{0x20,0x28,0x41},
+
+	{0x2C,0x2C,0x41},{0x30,0x2C,0x41},{0x34,0x2C,0x41},{0x3C,0x2C,0x41},
+	{0x41,0x2C,0x41},{0x41,0x2C,0x3C},{0x41,0x2C,0x34},{0x41,0x2C,0x30},
+	{0x41,0x2C,0x2C},{0x41,0x30,0x2C},{0x41,0x34,0x2C},{0x41,0x3C,0x2C},
+	{0x41,0x41,0x2C},{0x3C,0x41,0x2C},{0x34,0x41,0x2C},{0x30,0x41,0x2C},
+
+	{0x2C,0x41,0x2C},{0x2C,0x41,0x30},{0x2C,0x41,0x34},{0x2C,0x41,0x3C},
+	{0x2C,0x41,0x41},{0x2C,0x3C,0x41},{0x2C,0x34,0x41},{0x2C,0x30,0x41},
+
+	{0x00,0x00,0x00},{0x00,0x00,0x00},{0x00,0x00,0x00},{0x00,0x00,0x00},
+	{0x00,0x00,0x00},{0x00,0x00,0x00},{0x00,0x00,0x00},{0x00,0x00,0x00}
+};
 
 unsigned long get_edx(void)
 {
@@ -377,25 +470,31 @@ int is_rgb555(const vesa_mode_t *mode)
            mode->green_shift == 5 &&
            mode->blue_shift  == 0;
 }
-
 uint8_t bytes_per_pixel(vesa_mode_t *mode)
 {
-	uint8_t _p_ = 0;
-	if (is_rgb555(mode)) _p_ = 2;
-	else _p_ = (mode->depth/8);
-	return _p_;
+    if (!mode || mode->depth == 0)
+        return 0;
+
+    if (mode->depth <= 8)
+        return 1;
+
+    return (uint8_t)((mode->depth + 7u) / 8u);
 }
 
 uint8_t rgb_to_palette_index(uint32_t rgb)
 {
+    uint16_t n_colors = 256;
     uint8_t r = (rgb >> 16) & 0xFF;
     uint8_t g = (rgb >>  8) & 0xFF;
     uint8_t b =  rgb        & 0xFF;
 
     uint32_t best_distance = UINT32_MAX;
     uint8_t best_index = 0;
+    
+    if (v_mode->depth == 4) n_colors = 16;
 
-    for (uint16_t i = 0; i < 256; ++i) {
+    for (uint16_t i = 0; i < n_colors; ++i) 
+    {
         int dr = (int)r - vga_palette[i][0];
         int dg = (int)g - vga_palette[i][1];
         int db = (int)b - vga_palette[i][2];
@@ -438,7 +537,8 @@ void vesa_fill_screen_32(vesa_mode_t *mode, uint32_t color)
     }
 }
 
-unsigned long be2le(unsigned long bigEndian) {
+unsigned long be2le(unsigned long bigEndian) 
+{
     return ((bigEndian >> 24) & 0x000000FF) | 
            ((bigEndian >> 8) & 0x0000FF00) | 
            ((bigEndian << 8) & 0x00FF0000) | 
@@ -447,59 +547,75 @@ unsigned long be2le(unsigned long bigEndian) {
 
 unsigned long get_vesa_pixel(int x, int y)
 {
-	unsigned long c = 0;	
-	if (x < 0) return 0;
-	if (y < 0) return 0;
-	if (x >= v_mode->width) return 0;
-	if (y >= v_mode->height) return 0;
-	unsigned char *video_memory = (unsigned char*)(v_mode->lfb_address);
+    if (!v_mode || !v_mode->lfb_address)
+        return 0;
 
-	switch (v_mode->depth)
-	{
-		case 1:
-		{
-			c = (unsigned char)(video_memory[xyoffset(x,y,v_mode->scan_line_size)] & 0x01);
-		};
-		break;
-		case 2:
-		{
-			c = (unsigned char)(video_memory[xyoffset(x,y,v_mode->scan_line_size)] & 0x03);
-		};
-		break;
-		case 4:
-		{
-			c = (unsigned char)(video_memory[xyoffset(x,y,v_mode->scan_line_size)] & 0x0F);
-		};
-		break;
-		case 8:
-		{
-			c = (unsigned char)(video_memory[xyoffset(x,y,v_mode->scan_line_size)] & 0xFF);
-		};
-		break;
-		case 16:
-		{
-			c = (unsigned short)(*(unsigned long *)(video_memory + xyoffset16(x, y, v_mode->scan_line_size)) & 0xFFFF);
-		};
-		break;
-		case 24:
-		{
-			//c = (unsigned long)(*(unsigned long *)(video_memory + xyoffset24(x, y, v_mode->scan_line_size)) & 0xFFFFFF);
-			uint32_t p = (unsigned long)(*(unsigned long *)(video_memory + xyoffset24(x, y, v_mode->scan_line_size)) & 0xFFFFFFFF);
-			c = UINT32(UCHAR8C(p), UCHAR8B(p), UCHAR8D(p), 0);
-		};
-		break;
-		case 32:
-		{
-			c = (unsigned long)(*(unsigned long *)(video_memory + xyoffset32(x, y, v_mode->scan_line_size)));
-		};
-		break;
-		default:
-		{
-			return 0;
-		}
-		break;
-	};
-	return c;
+    if (x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return 0;
+
+    uint8_t *fb = (uint8_t *)(uintptr_t)v_mode->lfb_address;
+    uint8_t *row = fb + (size_t)y * v_mode->scan_line_size;
+
+    switch (v_mode->depth)
+    {
+        case 1:
+            return (row[x >> 3] >> (7 - (x & 7))) & 1u;
+
+        case 2:
+            return (row[x >> 2] >> (6 - ((x & 3) << 1))) & 3u;
+
+        case 4:
+        {
+            if (v_mode->memory_model == 3) 
+            {
+                uint8_t index = 0;
+                uint8_t *p = &row[x >> 3];
+                uint8_t bitmask = 0x80 >> (x & 7);
+                for (int plane = 0; plane < 4; plane++) 
+                {
+                    outb(0x3CE, 4); 
+                    outb(0x3CF, plane);
+                    if (*p & bitmask) index |= (1 << plane);
+                }
+                outb(0x3CE, 4); 
+                outb(0x3CF, 0);
+                return index;
+            }
+            else 
+            {
+                uint8_t v = row[x >> 1];
+                return (x & 1) ? (v & 0x0Fu) : (v >> 4);
+            }
+        }
+
+        case 8:
+            return row[x];
+
+        case 15:
+        case 16:
+        {
+            uint16_t value;
+            memcpy(&value, row + ((size_t)x << 1), sizeof(value));
+            return value;
+        }
+
+        case 24:
+        {
+            uint8_t *p = row + (size_t)x * 3u;
+            return ((uint32_t)p[2] << 16) | ((uint32_t)p[1] << 8) | p[0];
+        }
+
+        case 32:
+        {
+            uint32_t value;
+            memcpy(&value, row + ((size_t)x << 2), sizeof(value));
+            return value;
+        }
+
+        default:
+            return 0;
+    }
 }
 
 uint32_t video_function(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -541,23 +657,45 @@ uint16_t getvideomode()
 
 void setvideomode(uint16_t mode)
 {
-	initvideo();
-	video_function(4, mode, 0, 0);
-	int vsize = v_mode->width*v_mode->height*(v_mode->depth/8);
-	for(int i=0;i<vsize;i++)
-	{
-		unsigned char *v_lfb = (unsigned char*)v_mode->lfb_address;
-		v_lfb[i] = 0;
-	}
+    initvideo();
+
+    if (!v_mode)
+        return;
+
+    video_function(4, mode, 0, 0);
+
+    if (mode == 0x12 && v_mode->lfb_address == 0) 
+    {
+        v_mode->lfb_address = 0xA0000;
+        v_mode->scan_line_size = 80;
+        v_mode->width = 640;
+        v_mode->height = 480;
+        v_mode->depth = 4;
+        v_mode->memory_model = 3;
+    }
+    
+    if (!v_mode || !v_mode->lfb_address)
+        return;
+
+    size_t stride = v_mode->scan_line_size;
+    size_t size = stride * (size_t)v_mode->height;
+    
+    if (v_mode->depth == 4 && v_mode->memory_model == 3) 
+    {
+        outb(0x3C4, 2); 
+        outb(0x3C5, 0x0F);
+    }
+
+    memset((void *)(uintptr_t)v_mode->lfb_address, 0, size);
 }
 
 uint32_t getvideopixel(int x, int y)
 {
-	if (v_mode == NULL) return 0;
-	if (x > v_mode->width) return 0;
-	if (y > v_mode->height) return 0;
-	uint32_t p = video_function(8, x, y, 0);
-	return p;
+    if (!v_mode || x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return 0;
+
+    return video_function(8, (uint32_t)x, (uint32_t)y, 0);
 }
 
 void setvideopixel(int x, int y, uint32_t c)
@@ -574,183 +712,373 @@ static inline unsigned pack_color(unsigned r, unsigned g, unsigned b, const vesa
 
 uint32_t getpixel(int x, int y)
 {
-	if (v_mode == NULL) return 0;
-	if (x < 0) return 0;
-	if (y < 0) return 0;
-	if (x > v_mode->width) return 0;
-	if (y > v_mode->height) return 0;
-  	
-	int is_555 = is_rgb555(v_mode);
-	
-  	uint8_t bits = v_mode->depth;  	
-  	uint8_t bpp = (bits / 8);	
-	uint8_t *fb;
-	
-	if (screen_lock) fb = (uint8_t *)(uintptr_t)double_buffer;
-	else fb = (uint8_t *)(uintptr_t)frame_buffer;
-	
-	uint8_t *row = fb + y * v_mode->scan_line_size;
-	uint8_t *pixel = row + x * bpp;
-	
-	if (bpp >= 3)
-	{
-		uint8_t r = pixel[2];
-		uint8_t g = pixel[1];
-		uint8_t b = pixel[0];		
-		return RGB(r, g, b);
-	}
-	else
-	{
-		if (is_555)
-		{
-    		uint16_t *pixel555 = (uint16_t *)((uint8_t *)fb + y * v_mode->scan_line_size + x * 2);
-			uint16_t c = *pixel555;
-			uint8_t c_r = rgb555_get_r(c);
-			uint8_t c_g = rgb555_get_g(c);
-			uint8_t c_b = rgb555_get_b(c);
-			uint16_t rgb555_1 = pack_color(c_r,c_g,c_b,v_mode);
-			uint32_t rgb24_color = rgb555_to_rgb24(rgb555_1);
+    if (!v_mode || x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return 0;
+
+    uint8_t *fb = screen_lock ? double_buffer : frame_buffer;
+    if (!fb)
+        return 0;
+
+    uint8_t *row = fb + (size_t)y * v_mode->scan_line_size;
+
+    switch (v_mode->depth)
+    {
+        case 1:
+        {
+            uint8_t v = (row[x >> 3] >> (7 - (x & 7))) & 1u;
+            return palette_index_to_rgb(v);
+        }
+
+        case 2:
+        {
+            uint8_t v = (row[x >> 2] >> (6 - ((x & 3) << 1))) & 3u;
+            return palette_index_to_rgb(v);
+        }
+
+        case 4:
+        {
+            uint8_t index = 0;
+            int is_vram = 0;
+            if (v_mode->lfb_address != 0) 
+            {
+                uint8_t* lfb_start = (uint8_t*)(uintptr_t)v_mode->lfb_address;
+                size_t lfb_size = v_mode->scan_line_size * v_mode->height;
+                if (row >= lfb_start && row < lfb_start + lfb_size) is_vram = 1;
+            }
+            if ((uintptr_t)row >= 0xA0000 && (uintptr_t)row < 0xB0000) is_vram = 1;
+            
+            if (v_mode->memory_model == 3 && is_vram)
+            {
+                uint8_t *p = &row[x >> 3];
+                uint8_t bitmask = 0x80 >> (x & 7);
+                for (int plane = 0; plane < 4; plane++) 
+                {
+                    outb(0x3CE, 4); outb(0x3CF, plane);
+                    if (*p & bitmask) index |= (1 << plane);
+                }
+                outb(0x3CE, 4); outb(0x3CF, 0);
+            }
+            else
+            {
+                uint8_t v = row[x >> 1];
+                index = (x & 1) ? (v & 0x0Fu) : (v >> 4);
+            }
+            uint32_t rgb24_color = palette_index_to_rgb(index);
+			uint8_t r = GetRValue(rgb24_color);
+			uint8_t g = GetGValue(rgb24_color);
+			uint8_t b = GetBValue(rgb24_color);
+			return RGB(b,g,r);
+        }
+
+        case 8:
+        {
+            uint32_t rgb24_color = palette_index_to_rgb(row[x]);
 			uint8_t r = GetRValue(rgb24_color);
 			uint8_t g = GetGValue(rgb24_color);
 			uint8_t b = GetBValue(rgb24_color);
 			return RGB(b,g,r);
 		}
-		else
-		{
-			if ((bits == 8) || (bits == 4))
-			{
-				uint8_t color_index = pixel[0];
-				uint32_t rgb24_color = palette_index_to_rgb(color_index);
-				/*
-    			uint32_t color =
-        			(GetRValue(rgb24_color) << v_mode->red_shift)   |
-        			(GetGValue(rgb24_color) << v_mode->green_shift) |
-        			(GetBValue(rgb24_color) << v_mode->blue_shift);
-        		*/
-				uint8_t r = GetRValue(rgb24_color);
-				uint8_t g = GetGValue(rgb24_color);
-				uint8_t b = GetBValue(rgb24_color);
-				return RGB(b,g,r);
-			}
-			else
-			{
-				uint8_t c1 = pixel[0];
-				uint8_t c2 = pixel[1];
-				uint16_t c = UINT16(c1, c2);
-				uint32_t rgb888_color = rgb565_to_rgb888(c);
-				uint8_t r = GetRValue(rgb888_color);
-				uint8_t g = GetGValue(rgb888_color);
-				uint8_t b = GetBValue(rgb888_color);
-				return RGB(b,g,r);
-			}
-		}
-	}
+		
+        case 15:
+        case 16:
+        {
+            uint16_t raw;
+            memcpy(&raw, row + ((size_t)x << 1), sizeof(raw));
+
+            uint8_t r, g, b;
+
+            if (is_rgb555(v_mode))
+            {
+                r = (uint8_t)((((raw >> v_mode->red_shift) &
+                                ((1u << v_mode->red_width) - 1u)) * 255u) /
+                              ((1u << v_mode->red_width) - 1u));
+                g = (uint8_t)((((raw >> v_mode->green_shift) &
+                                ((1u << v_mode->green_width) - 1u)) * 255u) /
+                              ((1u << v_mode->green_width) - 1u));
+                b = (uint8_t)((((raw >> v_mode->blue_shift) &
+                                ((1u << v_mode->blue_width) - 1u)) * 255u) /
+                              ((1u << v_mode->blue_width) - 1u));
+            }
+            else
+            {
+                uint32_t rr = (raw >> v_mode->red_shift) &
+                              ((1u << v_mode->red_width) - 1u);
+                uint32_t gg = (raw >> v_mode->green_shift) &
+                              ((1u << v_mode->green_width) - 1u);
+                uint32_t bb = (raw >> v_mode->blue_shift) &
+                              ((1u << v_mode->blue_width) - 1u);
+
+                r = (uint8_t)((rr * 255u) / ((1u << v_mode->red_width) - 1u));
+                g = (uint8_t)((gg * 255u) / ((1u << v_mode->green_width) - 1u));
+                b = (uint8_t)((bb * 255u) / ((1u << v_mode->blue_width) - 1u));
+            }
+
+            return RGB(r, g, b);
+        }
+
+        case 24:
+        {
+            uint8_t *p = row + (size_t)x * 3u;
+            return RGB(p[2], p[1], p[0]);
+        }
+
+        case 32:
+        {
+            uint32_t raw;
+            memcpy(&raw, row + ((size_t)x << 2), sizeof(raw));
+
+            uint8_t r = (uint8_t)((raw >> v_mode->red_shift) &
+                                  ((1u << v_mode->red_width) - 1u));
+            uint8_t g = (uint8_t)((raw >> v_mode->green_shift) &
+                                  ((1u << v_mode->green_width) - 1u));
+            uint8_t b = (uint8_t)((raw >> v_mode->blue_shift) &
+                                  ((1u << v_mode->blue_width) - 1u));
+
+            if (v_mode->red_width != 8)
+                r = (uint8_t)((r * 255u) / ((1u << v_mode->red_width) - 1u));
+            if (v_mode->green_width != 8)
+                g = (uint8_t)((g * 255u) / ((1u << v_mode->green_width) - 1u));
+            if (v_mode->blue_width != 8)
+                b = (uint8_t)((b * 255u) / ((1u << v_mode->blue_width) - 1u));
+
+            return RGB(r, g, b);
+        }
+
+        default:
+            return 0;
+    }
+}
+
+static inline uint32_t scale8_to_bits(uint8_t value, uint8_t bits)
+{
+    if (bits >= 8)
+        return value;
+
+    return ((uint32_t)value * ((1u << bits) - 1u) + 127u) / 255u;
+}
+
+static inline uint8_t scale_bits_to_8(uint32_t value, uint8_t bits)
+{
+    if (bits >= 8)
+        return (uint8_t)value;
+
+    return (uint8_t)((value * 255u + (((1u << bits) - 1u) >> 1)) /
+                     ((1u << bits) - 1u));
+}
+
+static inline uint32_t pack_color_rgb(uint8_t r, uint8_t g, uint8_t b,
+                                      const vesa_mode_t *m)
+{
+    uint32_t value = 0;
+
+    if (!m)
+        return 0;
+
+    value |= scale8_to_bits(r, m->red_width) << m->red_shift;
+    value |= scale8_to_bits(g, m->green_width) << m->green_shift;
+    value |= scale8_to_bits(b, m->blue_width) << m->blue_shift;
+
+    return value;
+}
+
+static inline void write_pixel_unchecked(uint8_t *row, int x,
+                                         uint32_t color,
+                                         const vesa_mode_t *m)
+{
+    uint8_t r = GetRValue(color);
+    uint8_t g = GetGValue(color);
+    uint8_t b = GetBValue(color);
+
+    switch (m->depth)
+    {
+        case 1:
+        {
+            uint8_t *p = &row[x >> 3];
+            uint8_t mask = (uint8_t)(1u << (7 - (x & 7)));
+            uint8_t index = rgb_to_palette_index(RGB24(r, g, b)) & 1u;
+            if (index) *p |= mask;
+            else *p &= (uint8_t)~mask;
+            break;
+        }
+
+        case 2:
+        {
+            uint8_t *p = &row[x >> 2];
+            unsigned shift = 6u - ((unsigned)(x & 3) << 1);
+            uint8_t mask = (uint8_t)(3u << shift);
+            uint8_t index = rgb_to_palette_index(RGB24(r, g, b)) & 3u;
+            *p = (uint8_t)((*p & ~mask) | (index << shift));
+            break;
+        }
+
+        case 4:
+        {        
+            uint8_t index = rgb_to_palette_index(RGB24(r, g, b)) & 0x0Fu;            
+            int is_vram = 0;
+            if (m->lfb_address != 0) 
+            {
+                uint8_t* lfb_start = (uint8_t*)(uintptr_t)m->lfb_address;
+                size_t lfb_size = m->scan_line_size * m->height;
+                if (row >= lfb_start && row < lfb_start + lfb_size) is_vram = 1;
+            }
+            if ((uintptr_t)row >= 0xA0000 && (uintptr_t)row < 0xB0000) is_vram = 1;
+            if (m->memory_model == 3 && is_vram) 
+            {
+                uint8_t *p = &row[x >> 3];
+                uint8_t bitmask = 0x80 >> (x & 7);
+                outb(0x3CE, 8); outb(0x3CF, bitmask);
+                outb(0x3CE, 0); outb(0x3CF, index);
+                outb(0x3CE, 1); outb(0x3CF, 0x0F);
+                outb(0x3CE, 5); outb(0x3CF, 0);
+                
+                volatile uint8_t dummy = *p;
+                *p = dummy;
+                
+                outb(0x3CE, 0); outb(0x3CF, 0);
+                outb(0x3CE, 1); outb(0x3CF, 0);
+                outb(0x3CE, 8); outb(0x3CF, 0xFF);
+            }
+            else 
+            {
+                uint8_t *p = &row[x >> 1];
+                if (x & 1) *p = (uint8_t)((*p & 0xF0u) | index);
+                else       *p = (uint8_t)((*p & 0x0Fu) | (index << 4));
+            }
+            break;
+        }
+        
+        case 8:
+            row[x] = rgb_to_palette_index(RGB24(r, g, b));
+            break;
+
+        case 15:
+        case 16:
+        {
+            uint32_t packed = pack_color_rgb(r, g, b, m);
+            uint16_t value = (uint16_t)packed;
+            memcpy(row + ((size_t)x << 1), &value, sizeof(value));
+            break;
+        }
+
+        case 24:
+        {
+            uint8_t *p = row + (size_t)x * 3u;
+            p[0] = b;
+            p[1] = g;
+            p[2] = r;
+            break;
+        }
+
+        case 32:
+        {
+            uint32_t packed = pack_color_rgb(r, g, b, m);
+            memcpy(row + ((size_t)x << 2), &packed, sizeof(packed));
+            break;
+        }
+
+        default:
+            break;
+    }
 }
 
 void drawpixel(int x, int y, uint32_t c)
 {
-	if (v_mode == NULL) return;
-	if (x < 0) return;
-	if (y < 0) return;
-	if (x > v_mode->width) return;
-	if (y > v_mode->height) return;
-	
-	int is_555 = is_rgb555(v_mode);
-  	
-  	uint8_t bits = v_mode->depth;  	
-  	uint8_t bpp = (bits / 8);  	
-	uint8_t *fb;
-	
-	if (screen_lock) fb = (uint8_t *)(uintptr_t)double_buffer;
-	else fb = (uint8_t *)(uintptr_t)frame_buffer;
-	
-	uint8_t *row = fb + y * v_mode->scan_line_size;
-	uint8_t *pixel = row + x * bpp;    
-	
-	if (bpp >= 3)
-	{
-    	uint32_t color =
-        	(GetRValue(c) << v_mode->red_shift)   |
-        	(GetGValue(c) << v_mode->green_shift) |
-        	(GetBValue(c) << v_mode->blue_shift);
-	
-		uint8_t r = GetRValue(color);
-		uint8_t g = GetGValue(color);
-		uint8_t b = GetBValue(color);
-		
-		pixel[0] = r;
-		pixel[1] = g;
-		pixel[2] = b;
-	}
-	else
-	{
-		if (is_555)
-		{
-			uint16_t rgb555_color = rgb24_to_rgb555(c);
-			uint8_t r = rgb555_get_r(rgb555_color);
-			uint8_t g = rgb555_get_g(rgb555_color);
-			uint8_t b = rgb555_get_b(rgb555_color);
-			rgb555_color = rgb555(b,g,r);
-			uint8_t c_r = rgb555_get_r(rgb555_color);
-			uint8_t c_g = rgb555_get_g(rgb555_color);
-			uint8_t c_b = rgb555_get_b(rgb555_color);			
-			uint16_t rgb555_1 = pack_color(c_r,c_g,c_b,v_mode);
-			uint16_t *pixel555 = (uint16_t *)((uint8_t *)fb + y * v_mode->scan_line_size + x * 2);
-    		*pixel555 = rgb555_1;
-		}
-		else
-		{
-			if ((bits == 8) || (bits == 4))
-			{
-				uint8_t r = GetRValue(c);
-				uint8_t g = GetGValue(c);
-				uint8_t b = GetBValue(c);
-    			uint32_t color = RGB24(r,g,b);
-				uint8_t color_index = rgb_to_palette_index(color);
-				pixel[0] = color_index & 0xFF;
-			}
-			else
-			{
-				uint16_t rgb565_color = rgb888_to_rgb565(c);
-				uint8_t r = rgb565_get_r(rgb565_color);
-				uint8_t g = rgb565_get_g(rgb565_color);
-				uint8_t b = rgb565_get_b(rgb565_color);
-				rgb565_color = rgb565(b,g,r);
-				uint8_t c1 = UCHAR8A(rgb565_color);
-				uint8_t c2 = UCHAR8B(rgb565_color);
-				pixel[0] = c1;
-				pixel[1] = c2;
-			}
-		}
-	}
+    if (!v_mode || x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return;
+
+    uint8_t *fb = screen_lock ? double_buffer : frame_buffer;
+    if (!fb)
+        return;
+
+    uint8_t *row = fb + (size_t)y * v_mode->scan_line_size;
+    write_pixel_unchecked(row, x, c, v_mode);
 }
 
 void drawpixel2(int x, int y, uint32_t c)
 {
-	//setvideopixel(x, y, c);
-	uint32_t color = 0;
-	unsigned char *video_memory;
-	if (screen_lock) video_memory = (unsigned char*)(double_buffer);
-	else video_memory = (unsigned char*)(frame_buffer);
-	color = UINT32(GetRValue(c),GetGValue(c),GetBValue(c), 0x00);
-	(*(unsigned long *)(video_memory + xyoffset24(x, y, v_mode->scan_line_size))) = color & 0xFFFFFFFF;
+    drawpixel(x, y, c);
 }
 
 void restorebuffer(void)
 {
-	unsigned char p=bytes_per_pixel(v_mode);
-	unsigned long screen_size = v_mode->width*v_mode->height*p;
-	memcpy(double_buffer, frame_buffer, screen_size);
-	screen_lock = 1;
+    if (!v_mode || !frame_buffer || !double_buffer)
+        return;
+
+    if (v_mode->depth == 4 && v_mode->memory_model == 3) 
+    {
+        uint8_t *vram = (uint8_t *)(uintptr_t)v_mode->lfb_address;
+        if (!vram) vram = frame_buffer;
+        
+        for (unsigned y = 0; y < v_mode->height; y++) 
+        {
+            uint8_t *src = vram + y * v_mode->scan_line_size;
+            uint8_t *dst = double_buffer + y * (v_mode->width / 2);
+            for (unsigned x = 0; x < v_mode->width; x++) 
+            {
+                uint8_t index = 0;
+                uint8_t bitmask = 0x80 >> (x & 7);
+                for (int plane = 0; plane < 4; plane++) 
+                {
+                    outb(0x3CE, 4); outb(0x3CF, plane);
+                    if (src[x >> 3] & bitmask) index |= (1 << plane);
+                }
+                if (x & 1) dst[x >> 1] = (dst[x >> 1] & 0xF0) | index;
+                else       dst[x >> 1] = (dst[x >> 1] & 0x0F) | (index << 4);
+            }
+        }
+        outb(0x3CE, 4); 
+        outb(0x3CF, 0);
+        screen_lock = 1;
+        return;
+    }
+
+    size_t size = (size_t)v_mode->scan_line_size * v_mode->height;
+    memcpy(double_buffer, frame_buffer, size);
+    screen_lock = 1;
 }
 
 void swapbuffers(void)
 {
-	unsigned char p=bytes_per_pixel(v_mode);
-	unsigned long screen_size = v_mode->width*v_mode->height*p;
-	unsigned char *video_memory = (unsigned char*)(v_mode->lfb_address);
-	memcpy(video_memory, double_buffer, screen_size);
-	screen_lock = 0;
+    if (!v_mode || !v_mode->lfb_address || !double_buffer)
+        return;
+
+    if (v_mode->depth == 4 && v_mode->memory_model == 3) 
+    {
+        uint8_t *vram = (uint8_t *)(uintptr_t)v_mode->lfb_address;
+        for (int plane = 0; plane < 4; plane++) 
+        {
+            outb(0x3C4, 2); 
+            outb(0x3C5, 1 << plane);
+            for (unsigned y = 0; y < v_mode->height; y++) 
+            {
+                uint8_t *dst = vram + y * v_mode->scan_line_size;
+                uint8_t *src = double_buffer + y * (v_mode->width / 2);
+                for (unsigned x8 = 0; x8 < v_mode->width / 8; x8++) 
+                {
+                    uint8_t out_byte = 0;
+                    for (int bit = 0; bit < 8; bit++) 
+                    {
+                        int px = x8 * 8 + bit;
+                        uint8_t color;
+                        if (px & 1) color = src[px >> 1] & 0x0F;
+                        else color = src[px >> 1] >> 4;
+                        if (color & (1 << plane)) out_byte |= (0x80 >> bit);
+                    }
+                    dst[x8] = out_byte;
+                }
+            }
+        }
+        outb(0x3C4, 2); 
+        outb(0x3C5, 0x0F);
+        screen_lock = 0;
+        return;
+    }
+
+    size_t size = (size_t)v_mode->scan_line_size * v_mode->height;
+    memcpy((void *)(uintptr_t)v_mode->lfb_address, double_buffer, size);
+    screen_lock = 0;
 }
 
 uint32_t torgb(int r, int g, int b)
@@ -806,15 +1134,13 @@ void setbkalpha(uint8_t a)
 {
   backgroundalpha = a;
 }
-
-void setpixelrgb(int x,int y,uint32_t c)
+void setpixelrgb(int x, int y, uint32_t c)
 {
-  if (v_mode == NULL) return;
-  if (x < 0) return;
-  if (y < 0) return;
-  if (x > v_mode->width) return;
-  if (y > v_mode->height) return;
-  drawpixel(x,y,c);
+    if (!v_mode || x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return;
+
+    drawpixel(x, y, c);
 }
 
 int intsgn8(int x)
@@ -825,94 +1151,70 @@ int intsgn8(int x)
 	return r;
 }
 
-void setpixel(int x,int y,uint32_t color,int alpha)
+void setpixel(int x, int y, uint32_t color, int alpha)
 {
-  if (v_mode == NULL) return;
-  if (x < 0) return;
-  if (y < 0) return;
-  if (x > v_mode->width) return;
-  if (y > v_mode->height) return;
-  uint32_t c=0;
-  uint8_t sr=0,sg=0,sb=0;
-  uint8_t dr=0,dg=0,db=0;
-  uint8_t r=0,g=0,b=0;
-  uint8_t a=0;
-  a = 255-alpha;
-  c = getpixel(x,y);
-  sr = GetRValue(c);
-  sg = GetGValue(c);
-  sb = GetBValue(c);
-  dr = GetRValue(color);
-  dg = GetGValue(color);
-  db = GetBValue(color);
-  a = intsgn8(a);
-  sb = intsgn8(sb);
-  sg = intsgn8(sg);
-  sr = intsgn8(sr);
-  db = intsgn8(db);
-  dg = intsgn8(dg);
-  dr = intsgn8(dr);
-  dr = sr*(a/255.0)+dr*(1.0-(a/255.0));
-  dg = sg*(a/255.0)+dg*(1.0-(a/255.0));
-  db = sb*(a/255.0)+db*(1.0-(a/255.0));
-  db = intsgn8(db);
-  dg = intsgn8(dg);
-  dr = intsgn8(dr);
-  r = dr;
-  g = dg;
-  b = db;
-  b = intsgn8(b);
-  g = intsgn8(g);
-  r = intsgn8(r);
-  c = RGB(r,g,b);
-  drawpixel(x,y,c);
+    if (!v_mode || x < 0 || y < 0 ||
+        x >= (int)v_mode->width || y >= (int)v_mode->height)
+        return;
+
+    if (alpha <= 0)
+        return;
+
+    if (alpha >= 255)
+    {
+        drawpixel(x, y, color);
+        return;
+    }
+
+    uint32_t dst = getpixel(x, y);
+
+    uint32_t sr = GetRValue(color);
+    uint32_t sg = GetGValue(color);
+    uint32_t sb = GetBValue(color);
+
+    uint32_t dr = GetRValue(dst);
+    uint32_t dg = GetGValue(dst);
+    uint32_t db = GetBValue(dst);
+
+    uint32_t a = (uint32_t)alpha;
+    uint32_t ia = 255u - a;
+
+    uint8_t r = (uint8_t)((sr * a + dr * ia + 127u) / 255u);
+    uint8_t g = (uint8_t)((sg * a + dg * ia + 127u) / 255u);
+    uint8_t b = (uint8_t)((sb * a + db * ia + 127u) / 255u);
+
+    drawpixel(x, y, RGB(r, g, b));
 }
 
-void drawline(int x1,int y1,int x2,int y2,uint32_t c,int alpha)
+void drawline(int x1, int y1, int x2, int y2, uint32_t c, int alpha)
 {
- int x = x1;
- int sx = 1;
- if ((x2-x1)<0)
- {
-  sx = -1;
-  x -= 1;
- }
- int y = y1;
- int sy = 1;
- if ((y2-y1)<0)
- {
-  sy = -1;
-  y -= 1;
- }
- int dx = abs(x2-x1);
- int dy = abs(y2-y1);
- int ic = 0;
- if (dy > dx)
- {
-  int t = dx;
-  dx = dy;
-  dy = t;
-  ic = 1;
- }
- int er = 2 * dy - dx;
- int i=0;
- for (i=0;i<dx;i++)
- {
-   setpixel(x,y,c,alpha);
-   while (er >= 0)
-   {
-     if (ic)
-      x = x+sx;
-     else
-      y = y+sy;
-     er = er-2*dx;
-   }
-   if (ic)
-    y = y+sy;
-   else
-    x = x+sx;
-   er = er+2*dy;
- }
+    int dx = abs(x2 - x1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int dy = -abs(y2 - y1);
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx + dy;
+
+    for (;;)
+    {
+        setpixel(x1, y1, c, alpha);
+
+        if (x1 == x2 && y1 == y2)
+            break;
+
+        int e2 = err << 1;
+
+        if (e2 >= dy)
+        {
+            err += dy;
+            x1 += sx;
+        }
+
+        if (e2 <= dx)
+        {
+            err += dx;
+            y1 += sy;
+        }
+    }
 }
 
 int line_ox=0,line_oy=0;
@@ -940,16 +1242,59 @@ void rectangle(int x0,int y0,int x1,int y1,uint32_t c,int alpha)
   drawline(x0,y0,x0,y1,c,alpha);
 }
 
-void fillrect(int x0,int y0,int x1,int y1,uint32_t c,int alpha)
+void fillrect(int x0, int y0, int x1, int y1, uint32_t c, int alpha)
 {
-int x=0,y=0;
-  for (y=y0;y<y1;y++)
-  {
-    for (x=x0;x<x1;x++)
+    if (!v_mode)
+        return;
+
+    if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+    if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+
+    if (x1 <= 0 || y1 <= 0 ||
+        x0 >= (int)v_mode->width || y0 >= (int)v_mode->height)
+        return;
+
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > (int)v_mode->width) x1 = v_mode->width;
+    if (y1 > (int)v_mode->height) y1 = v_mode->height;
+
+    if (alpha <= 0 || x0 >= x1 || y0 >= y1)
+        return;
+
+    if (alpha < 255)
     {
-      setpixel(x,y,c,alpha);
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x)
+                setpixel(x, y, c, alpha);
+        return;
     }
-  }
+
+    uint8_t *fb = screen_lock ? double_buffer : frame_buffer;
+    if (!fb)
+        return;
+
+    if (v_mode->depth == 32)
+    {
+        uint32_t packed = pack_color_rgb(GetRValue(c), GetGValue(c),
+                                         GetBValue(c), v_mode);
+
+        for (int y = y0; y < y1; ++y)
+        {
+            uint32_t *row = (uint32_t *)(void *)
+                (fb + (size_t)y * v_mode->scan_line_size);
+            for (int x = x0; x < x1; ++x)
+                row[x] = packed;
+        }
+        return;
+    }
+
+    for (int y = y0; y < y1; ++y)
+    {
+        uint8_t *row = fb + (size_t)y * v_mode->scan_line_size;
+        for (int x = x0; x < x1; ++x)
+            write_pixel_unchecked(row, x, c, v_mode);
+    }
 }
 
 void drawcontroledgew(int x,int y,int w,int h, int state, int alpha);
@@ -1164,58 +1509,49 @@ COLORREF clLightifDarkB(COLORREF c)
 if (GetBValue(c)<64) return (GetBValue(c)+128); else
 return (GetBValue(c)|(GetBValue(c)/2));
 }
-
-
-void drawgradient(int x0, int y0, int x1, int y1, int horizontal, uint32_t source, uint32_t dest, int alpha)
+void drawgradient(int x0, int y0, int x1, int y1, int horizontal,
+                  uint32_t source, uint32_t dest, int alpha)
 {
-  int x,y,z,l,nc,f2,fc,m;
-  float f=0,fx=0,f4=0;
-  uint8_t b[2][3];
-  uint8_t a[3];
-  nc = 2;
-  if (nc > 0) {
-        if (horizontal) {
-          m = x1 - x0;
-        }
-        else
-        {
-          m = y1 - y0;
-        }
-        m *= 2;
-        b[0][0] = GetRValue(source);
-        b[0][1] = GetGValue(source);
-        b[0][2] = GetBValue(source);
-        b[1][0] = GetRValue(dest);
-        b[1][1] = GetGValue(dest);
-        b[1][2] = GetBValue(dest);
-        fc =((float)m/(float)nc);
-        for (y = 0; y < nc-1; y++) {
-           if (y == nc-1) {
-                 f2 =  m - y * fc - 1;
-           }
-           else
-           {
-                 f2 = fc;
-           }
+    if (!v_mode)
+        return;
 
-        for (x = 0; x < f2; x++) {
-           l = x+y*fc;
-           fx = x;
-           f4 = f2;
-           f = (fx/f4);
-           for (z = 0; z < 3; z++) {
-                 a[z] = (int)((b[y][z]+ (b[y + 1][z] - b[y][z])*f));
-           }
-           if (horizontal) {
-                  drawline(x0+l,y0,x0+l,y1,RGB(a[0],a[1],a[2]),alpha);
-           }
-           else
-           {
-                  drawline(x0, y0+l, x1, y0+l,RGB(a[0],a[1],a[2]),alpha);
-           }
-        }
-   }
-  }
+    int start = horizontal ? x0 : y0;
+    int end   = horizontal ? x1 : y1;
+    int length = end - start;
+
+    if (length == 0)
+    {
+        if (horizontal)
+            drawline(x0, y0, x0, y1, source, alpha);
+        else
+            drawline(x0, y0, x1, y0, source, alpha);
+        return;
+    }
+
+    uint32_t sr = GetRValue(source);
+    uint32_t sg = GetGValue(source);
+    uint32_t sb = GetBValue(source);
+    uint32_t dr = GetRValue(dest);
+    uint32_t dg = GetGValue(dest);
+    uint32_t db = GetBValue(dest);
+
+    int steps = abs(length);
+    int direction = (length > 0) ? 1 : -1;
+
+    for (int i = 0; i <= steps; ++i)
+    {
+        uint32_t r = sr + ((dr - sr) * (uint32_t)i) / (uint32_t)steps;
+        uint32_t g = sg + ((dg - sg) * (uint32_t)i) / (uint32_t)steps;
+        uint32_t b = sb + ((db - sb) * (uint32_t)i) / (uint32_t)steps;
+
+        int p = start + i * direction;
+        uint32_t color = RGB((uint8_t)r, (uint8_t)g, (uint8_t)b);
+
+        if (horizontal)
+            drawline(p, y0, p, y1, color, alpha);
+        else
+            drawline(x0, p, x1, p, color, alpha);
+    }
 }
 
 typedef struct tagBITMAP {
@@ -1343,64 +1679,47 @@ void freebmp(BMP* bmp)
  free(bmp);
 }
 */
-
-void drawimagemask(int x, int y,BMP* imagefile, int alpha, COLORREF color, int transparent, COLORREF transparentcolor)
+void drawimagemask(int x, int y, BMP *imagefile, int alpha,
+                   COLORREF color, int transparent, COLORREF transparentcolor)
 {
-int cx,cy,index=0,r,g,b;
-COLORREF c;
+    if (!imagefile || !imagefile->bgr || imagefile->width <= 0 ||
+        imagefile->height <= 0)
+        return;
 
-  for(cy=0;cy<imagefile->height;cy++)
-  {
-  for(cx=0;cx<imagefile->width;cx++)
-  {
-    r = imagefile->bgr[index + 2];
-    g = imagefile->bgr[index + 1];
-    b = imagefile->bgr[index + 0];
-    c = RGB(b,g,r);
-    if (transparent)
+    for (int cy = 0; cy < imagefile->height; ++cy)
     {
-      if (c!=transparentcolor) setpixel(x+cx,y+(imagefile->height-cy),color,alpha);
-    }
-    else
-    {
-      setpixel(x+cx,y+(imagefile->height-cy),color,alpha);    
-    }
-    index += 3;
-  }
-  }
-  
-//  enddrawing();
+        const uint8_t *src = imagefile->bgr + (size_t)cy * imagefile->width * 3u;
+        int dy = y + imagefile->height - 1 - cy;
 
+        for (int cx = 0; cx < imagefile->width; ++cx, src += 3)
+        {
+            COLORREF c = RGB(src[2], src[1], src[0]);
+
+            if (!transparent || c != transparentcolor)
+                setpixel(x + cx, dy, color, alpha);
+        }
+    }
 }
-
-void drawimage(int x, int y,BMP* imagefile, int alpha, int transparent, COLORREF transparentcolor)
+void drawimage(int x, int y, BMP *imagefile, int alpha,
+               int transparent, COLORREF transparentcolor)
 {
-int cx,cy,index=0,r,g,b,rgb;
-COLORREF c;
+    if (!imagefile || !imagefile->bgr || imagefile->width <= 0 ||
+        imagefile->height <= 0)
+        return;
 
-  for(cy=0;cy<imagefile->height;cy++)
-  {
-  for(cx=0;cx<imagefile->width;cx++)
-  {
-    r = imagefile->bgr[index + 2];
-    g = imagefile->bgr[index + 1];
-    b = imagefile->bgr[index + 0];
-    c = RGB(b,g,r);
-    rgb = RGB(r,g,b);
-    if (transparent)
+    for (int cy = 0; cy < imagefile->height; ++cy)
     {
-      if (c!=transparentcolor) setpixel(x+cx,y+(imagefile->height-cy),rgb,alpha);
-    }
-    else
-    {
-      setpixel(x+cx,y+(imagefile->height-cy),rgb,alpha);    
-    }
-    index += 3;
-  }
-  }
-  
-//  enddrawing();
+        const uint8_t *src = imagefile->bgr + (size_t)cy * imagefile->width * 3u;
+        int dy = y + imagefile->height - 1 - cy;
 
+        for (int cx = 0; cx < imagefile->width; ++cx, src += 3)
+        {
+            COLORREF c = RGB(src[2], src[1], src[0]);
+
+            if (!transparent || c != transparentcolor)
+                setpixel(x + cx, dy, c, alpha);
+        }
+    }
 }
 
 #define ARROW_HEIGHT 32
@@ -1441,45 +1760,28 @@ static const uint8_t arrow[]  = {
   0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 
   0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03
 };
-
 void drawcursor(int x, int y)
 {
-	for(int yy=0;yy<ARROW_HEIGHT;yy++)
-	{
-		for(int xx=0;xx<ARROW_WIDTH;xx++)
-		{
-			uint32_t p = arrow[xyoffset(xx,yy,ARROW_WIDTH)];
-			uint8_t r = 0;
-			uint8_t g = 0;
-			uint8_t b = 0;			
-			uint8_t t = 0;
-			switch(p)
-			{
-				case 0:
-				{
-					r = g = b = 0;
-				}
-				break;
-				case 3:
-				{
-					r = 0; g = 0; b = 255;
-					t = 1;
-				}
-				break;
-				case 255:
-				{
-					r = g = b = 255;
-				}
-				break;
-			}
-			uint32_t c = UINT32(r,g,b,0);
-			if (t == 0) 
-			{
-				setpixel(x+xx+2, y+yy+2, clBlack, 96);
-				setpixel(x+xx, y+yy, c, 255);
-			}
-		}
-	}
+    for (int yy = 0; yy < ARROW_HEIGHT; ++yy)
+    {
+        for (int xx = 0; xx < ARROW_WIDTH; ++xx)
+        {
+            uint8_t p = arrow[yy * ARROW_WIDTH + xx];
+
+            if (p == 3)
+                continue;
+
+            uint32_t c;
+
+            if (p == 255)
+                c = clWhite;
+            else
+                c = clBlack;
+
+            setpixel(x + xx + 2, y + yy + 2, clBlack, 96);
+            setpixel(x + xx, y + yy, c, 255);
+        }
+    }
 }
 
 
@@ -1503,14 +1805,10 @@ void setmouseresrange(int screen_width, int screen_height)
 	//mouse_range
 	__asm__ volatile ( "int $0x80" : : "a" (515), "b" (0), "c" (screen_width), "d" (screen_height) );
 }
-
 bool in_area(int px, int py, int x, int y, int w, int h)
 {
-	if (((px >= x) && (py >= y)) && ((px <= x+w) && (py <= y+h)))
-	{
-		return true;
-	}
-	return false;
+    return px >= x && py >= y &&
+           px < x + w && py < y + h;
 }
 
 uint8_t iskbhit(void)
@@ -1681,14 +1979,14 @@ void print_string(int xpos, int ypos, const char *text, uint32_t color, uint8_t 
 
 void drawpalette(int x, int y)
 {
-    int color;
-    int xx, yy;
-
-    for (color = 0; color < 256; color++)
+	uint16_t n_colors = 256;
+	if (v_mode->depth == 4) n_colors = 16;
+    for (int color = 0; color < n_colors; ++color)
     {
-        xx = (color % 16) * 8;
-        yy = (color / 16) * 8;
-        fillrect(x + xx, y + yy, x + xx + 7, y + yy + 7, color, 255);
+        int xx = (color & 15) * 8;
+        int yy = (color >> 4) * 8;
+        fillrect(x + xx, y + yy, x + xx + 8, y + yy + 8,
+                 palette_index_to_rgb((uint8_t)color), 255);
     }
 }
 
@@ -1744,7 +2042,7 @@ int main(int argc, char * const argv[])
 	
 	fillrect(100, 360, 100+64, 360+64, clBlue, 50);
 	
-	//drawpalette(20, 20);
+	if (v_mode->depth < 15) drawpalette(20, 20);
 
 	while(quit == 0)
 	{
@@ -1787,8 +2085,7 @@ int main(int argc, char * const argv[])
 	}
 	
 	setvideomode(old_video_mode);
-	free(frame_buffer);
-	free(double_buffer);
+	free_framebuffers();
 	uninitmouse();
 	resetkeys();
 		
