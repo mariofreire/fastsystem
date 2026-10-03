@@ -232,6 +232,8 @@ void free(void *ptr)
 	const unsigned char *alloc_header;
 	unsigned long alloc_pos;
 	unsigned long alloc_size;
+	int header_i;
+	int header_clear;
 	union hdr {
 		struct
 		{
@@ -244,8 +246,21 @@ void free(void *ptr)
 	};
 	union hdr pos;
 	union hdr siz;
+	if (ptr == NULL)
+		return;
 	alloc_ptr = (unsigned char*)ptr;
 	alloc_header = (unsigned char*)ptr-ALLOC_SIZE_HEADER;
+	header_clear = 1;
+	for (header_i = 0; header_i < ALLOC_SIZE_HEADER; header_i++)
+	{
+		if (alloc_header[header_i] != 0)
+		{
+			header_clear = 0;
+			break;
+		}
+	}
+	if (header_clear)
+		return;
 	unsigned char pos_a = *alloc_header++;
 	unsigned char pos_b = *alloc_header++;
 	unsigned char pos_c = *alloc_header++;
@@ -311,6 +326,8 @@ void free(void *ptr)
 	//_heap_position -= alloc_size;
 	_heap_alloc_last_clean_start = alloc_pos;
 	_heap_alloc_last_clean_end = alloc_pos+alloc_size;
+	for (header_i = 0; header_i < ALLOC_SIZE_HEADER; header_i++)
+		((unsigned char *)ptr - ALLOC_SIZE_HEADER)[header_i] = 0;
 }
 
 void detect_memory_map()

@@ -138,7 +138,7 @@ context_switch:
     pushfd
     or dword [esp], 0x200
     and dword [esp], 0xFFFFBFFF
-    push dword KERNEL_MODE_CODE_SEGMENT
+    push cs
     push dword context_switch_resume
     pushad
     push ds
@@ -344,7 +344,7 @@ switchtousermode:
 	mov ds, ax
 	mov es, ax
 	mov gs, ax
-	mov ax, TLS_SELECTOR
+	mov ax, TLS_SELECTOR | 3
 	mov fs, ax
 	push dword USER_MODE_DATA_SEGMENT
 	mov eax, esp
@@ -396,6 +396,7 @@ limitreached:
 
 isr_stub:
 	pusha
+	xor eax, eax
 	mov ax, ds
 	push eax
 	mov ax, KERNEL_MODE_DATA_SEGMENT
@@ -409,14 +410,16 @@ isr_stub:
 	pop ebx
 	mov ds, bx
 	mov es, bx
-	mov fs, bx
+	mov ax, TLS_SELECTOR
+	mov fs, ax
 	mov gs, bx
 	popa
 	add esp, 8
-	iret
+	iretd
 
 irq_stub:
 	pusha
+	xor eax, eax
 	mov ax, ds
 	push eax
 	mov ax, KERNEL_MODE_DATA_SEGMENT
@@ -430,11 +433,12 @@ irq_stub:
 	pop ebx
 	mov ds, bx
 	mov es, bx
-	mov fs, bx
+	mov ax, TLS_SELECTOR
+	mov fs, ax
 	mov gs, bx
 	popa
 	add esp, 8
-	iret
+	iretd
 	
 
 isr_noerr 0

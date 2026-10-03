@@ -1965,7 +1965,8 @@ void setgdt(int n, unsigned long limit, unsigned long base, unsigned char access
 	gdt.entry[n].flags = (limit >> 16) & 0x0F;
 	gdt.entry[n].flags |= flags & 0xF0;
 	gdt.entry[n].high_base = ((base & 0xFF000000) >> 24);
-	gdt.limit = n + 1;
+	if ((unsigned char)(n + 1) > gdt.limit)
+		gdt.limit = (unsigned char)(n + 1);
 }
 
 void setgdt_entries(void)
@@ -1980,7 +1981,7 @@ void setgdt_entries(void)
 	setgdt(7, 0x00000000, 0x00000000, 0x89, 0x00); // tss
 	//setgdt(7, 0x00000000, 0x00000000, 0xE9, 0x00); // tss
 	//setgdt(8, 0xFFFFFFFF, 0x00000000, 0xF2, 0x0C); // tls
-	setgdt(8, 0x000000FF, 0x00000000, 0xF2, 0x40); // tls
+	setgdt(8, TLS_SIZE - 1, 0x00000000, 0xF2, 0x40); // tls
 	setgdt(9, 0x00000000, 0x00000000, 0x00, 0x00); // null
 	settss_entries();
 }
@@ -2059,10 +2060,11 @@ void settss(int n, unsigned short ss, unsigned long esp)
     tss.ss = KERNEL_MODE_DATA_SEGMENT;
     tss.ds = KERNEL_MODE_DATA_SEGMENT;
     tss.es = KERNEL_MODE_DATA_SEGMENT;
-    tss.fs = KERNEL_MODE_DATA_SEGMENT;
+    tss.fs = TLS_SELECTOR;
     tss.gs = KERNEL_MODE_DATA_SEGMENT;
 
-    tss.iomap_base = sizeof(tss);
+    tss.cr3 = 0;
+    tss.iomap_base = (unsigned short)sizeof(tss);
 }
 
 void settss_stack(unsigned long ss, unsigned long esp)
@@ -2660,11 +2662,11 @@ void set_isr(unsigned char int_n)
 	}
 	if (int_n == 128)
 	{
-		setidt(128, (unsigned long)isr128, 0x08, 0xEE);
+		setidt(128, (unsigned long)isr128, KERNEL_MODE_CODE_SEGMENT, 0xEE);
 	}
 	if (int_n == 129)
 	{
-		setidt(129, (unsigned long)isr129, 0x08, 0x8E);
+		setidt(129, (unsigned long)kernelmode_entry_gate, KERNEL_MODE_CODE_SEGMENT, 0xEE);
 	}
 	if (int_n == 130)
 	{
@@ -4221,11 +4223,13 @@ void thread_bootstrap(void)
 {
     task_t *t;
     void *result;
+    unsigned short cs;
 
     t = &thread[current_thread];
 
-    //if (usermode && (int)t->thread_id != idle_thread_id)
-    //    switchtousermode();
+    __asm__ volatile ("mov %%cs, %0" : "=r"(cs));
+    if (usermode && ((cs & 3) != 3))
+        switchtousermode();
 
     result = t->entry(t->param);
 
@@ -4702,6 +4706,7 @@ int tls_set(unsigned long offset, const void *src, unsigned long size)
 static void task_apply_tss(const task_t *t)
 {
     unsigned long top;
+    unsigned long cr3;
 
     if (t != NULL && t->kernel_stack != NULL && t->kernel_stack_size >= 64)
         top = (unsigned long)t->kernel_stack + t->kernel_stack_size;
@@ -4712,59 +4717,60 @@ static void task_apply_tss(const task_t *t)
 
     top &= ~0xFUL;
     settss_stack(KERNEL_MODE_DATA_SEGMENT, top);
+
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    tss.cr3 = cr3;
+    tss.iomap_base = (unsigned short)sizeof(tss);
+}
+
+static void task_fix_user_frame(task_t *t)
+{
+    context_t *frame;
+    unsigned long rpl;
+
+    if (t == NULL || t->esp == NULL)
+        return;
+
+    frame = t->esp;
+    rpl = frame->cs & 3UL;
+    if (rpl != 3)
+        return;
+
+    frame->cs = t->user_cs ? t->user_cs : USER_MODE_CODE_SEGMENT;
+    frame->ss = t->user_ds ? t->user_ds : USER_MODE_DATA_SEGMENT;
+    if ((frame->ds & 3UL) == 0)
+        frame->ds = frame->ss;
+    if ((frame->es & 3UL) == 0)
+        frame->es = frame->ss;
+    if ((frame->gs & 3UL) == 0)
+        frame->gs = frame->ss;
+    frame->fs = (unsigned long)(TLS_SELECTOR | 3);
+    frame->eflags |= 0x3202UL;
+    frame->eflags &= ~0x4000UL;
 }
 
 context_t *schedule(context_t *current_frame)
 {
-	unsigned long current_ds;
     task_t *current;
     task_t *next_task;
-    int schd_usermode = usermode;
-    int next;	
-	
+    int next;
+
     if (thread_count <= 0)
         return current_frame;
 
     if (!valid_task_id(current_thread))
         return current_frame;
-        
+
     current = &thread[current_thread];
-    
+
     if (!valid_task_id(current->thread_id))
         return current_frame;
-        
-    if (schd_usermode == 1)
-    {
-    	if (current_thread == idle_thread_id)
-    	{
-            current_ds = current->kernel_ds;    	
-    	}
-    	else
-    	{
-            current_ds = current->user_ds;
-        }
-    }
-    else
-    {
-    	if (kernelmode == 1) current_ds = current->kernel_ds;
-    	else current_ds = current->user_ds;
-    }
 
     if (current_frame != NULL)
     {
         current->esp = current_frame;
         save_context(current_frame);
     }
-        
-        /*
-    current = &thread[current_thread];
-    
-    if (current_frame != NULL)
-    {
-        current->esp = current_frame;
-        memcpy(&current->context, current_frame, sizeof(context_t));
-    }
-    */
 
     if (current->state == TASK_TERMINATE ||
         current->state == TASK_SLEEP ||
@@ -4785,22 +4791,12 @@ context_t *schedule(context_t *current_frame)
                 next_task->priority > 0
                     ? next_task->priority
                     : 1;
-            unsigned long next_cs = ((schd_usermode) ? 
-                ((current_thread == idle_thread_id) 
-                    ? next_task->kernel_cs 
-                    : next_task->user_cs) 
-                    : next_task->kernel_cs);
-            unsigned long next_ds = ((schd_usermode) ? 
-                ((current_thread == idle_thread_id) 
-                    ? next_task->kernel_ds 
-                    : next_task->user_ds) 
-                    : next_task->kernel_ds);
-            (void)next_ds;
             tls_load_task(next_task);
             task_apply_tss(next_task);
+            task_fix_user_frame(next_task);
             if (next_task->esp == NULL)
                 return current_frame;
-			return next_task->esp;
+            return next_task->esp;
         }
 
         return current_frame;
@@ -4812,7 +4808,12 @@ context_t *schedule(context_t *current_frame)
             current->quantum_left--;
 
         if (current->quantum_left > 0)
+        {
+            tls_load_task(current);
+            task_apply_tss(current);
+            task_fix_user_frame(current);
             return current_frame;
+        }
 
         current->state = TASK_READY;
     }
@@ -4829,26 +4830,14 @@ context_t *schedule(context_t *current_frame)
             next_task->priority > 0
                 ? next_task->priority
                 : 1;
-                /*
-            unsigned long next_cs = ((schd_usermode) ? 
-                ((current_thread == idle_thread_id) 
-                    ? next_task->kernel_cs 
-                    : next_task->user_cs) 
-                    : next_task->kernel_cs);
-                    */
-        unsigned long next_ds = ((schd_usermode) ? 
-            ((current_thread == idle_thread_id) 
-                ? next_task->kernel_ds 
-                : next_task->user_ds) 
-                : next_task->kernel_ds);
-        (void)next_ds;
         tls_load_task(next_task);
         task_apply_tss(next_task);
+        task_fix_user_frame(next_task);
         if (next_task->esp == NULL)
             return current_frame;
         return next_task->esp;
     }
-    
+
     if (current->state != TASK_TERMINATE)
     {
         current->state = TASK_RUNNING;
@@ -4856,9 +4845,12 @@ context_t *schedule(context_t *current_frame)
             current->priority > 0
                 ? current->priority
                 : 1;
+        tls_load_task(current);
+        task_apply_tss(current);
+        task_fix_user_frame(current);
         return current_frame;
     }
-    
+
     if (idle_thread_id >= 0)
     {
         current_thread = idle_thread_id;
@@ -4867,6 +4859,7 @@ context_t *schedule(context_t *current_frame)
         thread[idle_thread_id].quantum_left = 1;
         tls_load_task(&thread[current_thread]);
         task_apply_tss(&thread[idle_thread_id]);
+        task_fix_user_frame(&thread[idle_thread_id]);
         if (thread[idle_thread_id].esp == NULL)
             return current_frame;
         return thread[idle_thread_id].esp;
@@ -5756,6 +5749,44 @@ int inittaskframe(
 
     t->user_cs = USER_MODE_CODE_SEGMENT;
     t->user_ds = USER_MODE_DATA_SEGMENT;
+
+    if (usermode && t->kernel_stack != NULL &&
+        t->kernel_stack_size >= (uint32_t)(sizeof(context_t) + 64))
+    {
+        unsigned long ktop;
+        unsigned long user_top;
+
+        ktop = ((unsigned long)t->kernel_stack + t->kernel_stack_size) & ~0xFUL;
+        frame = (context_t *)(ktop - sizeof(context_t));
+        memset(frame, 0, sizeof(context_t));
+
+        user_top = (unsigned long)&t->stack[0] + (words * sizeof(unsigned long));
+        user_top &= ~0xFUL;
+
+        frame->gs = t->user_ds;
+        frame->fs = (unsigned long)(TLS_SELECTOR | 3);
+        frame->es = t->user_ds;
+        frame->ds = t->user_ds;
+        frame->edi = 0;
+        frame->esi = 0;
+        frame->ebp = 0;
+        frame->esp = user_top;
+        frame->ebx = 0;
+        frame->edx = 0;
+        frame->ecx = 0;
+        frame->eax = 0;
+        frame->eip = (unsigned long)thread_bootstrap;
+        frame->cs = t->user_cs;
+        frame->eflags = 0x3202;
+        frame->useresp = user_top;
+        frame->ss = t->user_ds;
+
+        t->stack_top = (uint32_t *)user_top;
+        t->stack_size = words * sizeof(unsigned long);
+        t->esp = frame;
+        memcpy(&t->context, frame, sizeof(context_t));
+        return TRUE;
+    }
 
     current_cs = t->kernel_cs;
     current_ds = t->kernel_ds;
@@ -7512,6 +7543,32 @@ void sys_exit_group(unsigned long status)
     );
 }
 
+static unsigned long task_relocate_ptr(unsigned long value,
+    unsigned long old_lo, unsigned long old_hi, long delta)
+{
+    if (delta != 0 && value >= old_lo && value <= old_hi)
+        return (unsigned long)((long)value + delta);
+    return value;
+}
+
+static void task_relocate_stack(void *base, unsigned long bytes,
+    unsigned long old_lo, unsigned long old_hi, long delta)
+{
+    unsigned long *slot;
+    unsigned long count;
+    unsigned long i;
+
+    if (base == NULL || delta == 0 || bytes < sizeof(unsigned long))
+        return;
+    if (old_hi < old_lo)
+        return;
+
+    slot = (unsigned long *)base;
+    count = bytes / sizeof(unsigned long);
+    for (i = 0; i < count; i++)
+        slot[i] = task_relocate_ptr(slot[i], old_lo, old_hi, delta);
+}
+
 int sys_fork_handler(registers_t *parent_frame)
 {
     unsigned long flags;
@@ -7604,10 +7661,15 @@ int sys_fork_handler(registers_t *parent_frame)
     child_end  = child_base + sizeof(child->stack);
     stack_offset = child_base - parent_base;
 
+    task_relocate_stack(child->stack, sizeof(child->stack),
+        parent_base, parent_end, (long)stack_offset);
+
     unsigned long parent_resume_esp;
     unsigned long copy_bytes;
     unsigned long ktop;
+    unsigned long iret_gap;
     unsigned short parent_rpl;
+    int resume_in_task_stack;
 
     parent_rpl = (unsigned short)(parent_frame->cs & 3);
     if (parent_rpl == 3)
@@ -7615,58 +7677,131 @@ int sys_fork_handler(registers_t *parent_frame)
     else
         parent_resume_esp = (unsigned long)&parent_frame->eflags + sizeof(unsigned long);
 
-    copy_bytes = 2048;
-    ktop = ((unsigned long)child->kernel_stack + child->kernel_stack_size) & ~0xFUL;
-    if (sizeof(context_t) + copy_bytes + 16 > child->kernel_stack_size)
-        copy_bytes = 256;
-        
-    child_frame = (context_t *)(ktop - sizeof(context_t) - copy_bytes);
-    memset(child_frame, 0, sizeof(context_t));
+    resume_in_task_stack =
+        (parent_resume_esp >= parent_base && parent_resume_esp <= parent_end);
 
-    child_frame->gs = parent_rpl ? child->user_ds : child->kernel_ds;
-    child_frame->fs = TLS_SELECTOR;
-    child_frame->es = child_frame->gs;
-    child_frame->ds = parent_frame->ds ? parent_frame->ds : child_frame->gs;
-    child_frame->edi = parent_frame->edi;
-    child_frame->esi = parent_frame->esi;
-    child_frame->ebp = parent_frame->ebp;
-    child_frame->ebx = parent_frame->ebx;
-    child_frame->edx = parent_frame->edx;
-    child_frame->ecx = parent_frame->ecx;
-    child_frame->eax = 0;
-    child_frame->eip = parent_frame->eip;
-    child_frame->cs = parent_frame->cs ? parent_frame->cs : child->kernel_cs;
-    child_frame->eflags = (parent_frame->eflags | 0x202UL) & ~0x4000UL;
+    ktop = ((unsigned long)child->kernel_stack + child->kernel_stack_size) & ~0xFUL;
+    iret_gap = (unsigned long)(&((context_t *)0)->useresp);
 
     if (parent_rpl == 3)
     {
-        child_frame->eflags |= 0x3000UL;
-        child_frame->ss = child->user_ds;
-        if (parent_resume_esp >= parent_base && parent_resume_esp < parent_end)
-            child_frame->useresp = parent_resume_esp + stack_offset;
+        unsigned long child_resume;
+        unsigned long reg_lo;
+        unsigned long reg_hi;
+        long reg_delta;
+
+        if (resume_in_task_stack)
+        {
+            child_resume = parent_resume_esp + stack_offset;
+            reg_lo = parent_base;
+            reg_hi = parent_end;
+            reg_delta = (long)stack_offset;
+        }
         else
-            child_frame->useresp = child_end - 16;
-        if (child_frame->ebp >= parent_base && child_frame->ebp < parent_end)
-            child_frame->ebp += stack_offset;
-        child_frame->esp = child_frame->useresp;
+        {
+            unsigned long window;
+
+            window = 4096;
+            if (window > sizeof(child->stack))
+                window = sizeof(child->stack);
+            memcpy(child->stack, (const void *)parent_resume_esp, window);
+            reg_lo = parent_resume_esp;
+            reg_hi = parent_resume_esp + window;
+            reg_delta = (long)child_base - (long)parent_resume_esp;
+            task_relocate_stack(child->stack, window, reg_lo, reg_hi, reg_delta);
+            child_resume = child_base;
+        }
+
+        child_frame = (context_t *)(ktop - sizeof(context_t));
+        memset(child_frame, 0, sizeof(context_t));
+
+        child_frame->gs = child->user_ds;
+        child_frame->fs = (unsigned long)(TLS_SELECTOR | 3);
+        child_frame->es = child->user_ds;
+        child_frame->ds = child->user_ds;
+        child_frame->edi = task_relocate_ptr(parent_frame->edi, reg_lo, reg_hi, reg_delta);
+        child_frame->esi = task_relocate_ptr(parent_frame->esi, reg_lo, reg_hi, reg_delta);
+        child_frame->ebp = task_relocate_ptr(parent_frame->ebp, reg_lo, reg_hi, reg_delta);
+        child_frame->ebx = parent_frame->ebx;
+        child_frame->edx = parent_frame->edx;
+        child_frame->ecx = parent_frame->ecx;
+        child_frame->eax = 0;
+        child_frame->eip = parent_frame->eip;
+        child_frame->cs = child->user_cs;
+        child_frame->eflags = (parent_frame->eflags | 0x3202UL) & ~0x4000UL;
+        child_frame->useresp = child_resume;
+        child_frame->esp = child_resume;
+        child_frame->ss = child->user_ds;
+    }
+    else if (resume_in_task_stack &&
+             parent_resume_esp >= parent_base + iret_gap + 16)
+    {
+        unsigned long child_resume;
+
+        child_resume = parent_resume_esp + stack_offset;
+        child_frame = (context_t *)(child_resume - iret_gap);
+        memset(child_frame, 0, iret_gap);
+
+        child_frame->gs = child->kernel_ds;
+        child_frame->fs = TLS_SELECTOR;
+        child_frame->es = child->kernel_ds;
+        child_frame->ds = child->kernel_ds;
+        child_frame->edi = task_relocate_ptr(parent_frame->edi, parent_base, parent_end, (long)stack_offset);
+        child_frame->esi = task_relocate_ptr(parent_frame->esi, parent_base, parent_end, (long)stack_offset);
+        child_frame->ebp = task_relocate_ptr(parent_frame->ebp, parent_base, parent_end, (long)stack_offset);
+        child_frame->esp = child_resume;
+        child_frame->ebx = parent_frame->ebx;
+        child_frame->edx = parent_frame->edx;
+        child_frame->ecx = parent_frame->ecx;
+        child_frame->eax = 0;
+        child_frame->eip = parent_frame->eip;
+        child_frame->cs = child->kernel_cs;
+        child_frame->eflags = (parent_frame->eflags | 0x202UL) & ~0x4000UL;
     }
     else
     {
-        memcpy(&child_frame->useresp, (const void *)parent_resume_esp, copy_bytes);
-        if (child_frame->ebp >= parent_resume_esp &&
-            child_frame->ebp < parent_resume_esp + copy_bytes)
-        {
-            child_frame->ebp = (unsigned long)&child_frame->useresp +
-                (child_frame->ebp - parent_resume_esp);
-        }
-        child_frame->esp = (unsigned long)&child_frame->useresp;
-        child_frame->ss = child->kernel_ds;
+        unsigned long child_copy;
+        long delta;
+
+        copy_bytes = 3072;
+        if (sizeof(context_t) + copy_bytes + 32 > child->kernel_stack_size)
+            copy_bytes = 1024;
+
+        child_frame = (context_t *)(ktop - sizeof(context_t) - copy_bytes);
+        memset(child_frame, 0, iret_gap);
+        child_copy = (unsigned long)&child_frame->useresp;
+        memcpy((void *)child_copy, (const void *)parent_resume_esp, copy_bytes);
+        delta = (long)child_copy - (long)parent_resume_esp;
+        task_relocate_stack((void *)child_copy, copy_bytes,
+            parent_resume_esp, parent_resume_esp + copy_bytes, delta);
+
+        child_frame->gs = child->kernel_ds;
+        child_frame->fs = TLS_SELECTOR;
+        child_frame->es = child->kernel_ds;
+        child_frame->ds = child->kernel_ds;
+        child_frame->edi = task_relocate_ptr(parent_frame->edi,
+            parent_resume_esp, parent_resume_esp + copy_bytes, delta);
+        child_frame->esi = task_relocate_ptr(parent_frame->esi,
+            parent_resume_esp, parent_resume_esp + copy_bytes, delta);
+        child_frame->ebp = task_relocate_ptr(parent_frame->ebp,
+            parent_resume_esp, parent_resume_esp + copy_bytes, delta);
+        child_frame->ebx = parent_frame->ebx;
+        child_frame->edx = parent_frame->edx;
+        child_frame->ecx = parent_frame->ecx;
+        child_frame->eax = 0;
+        child_frame->eip = parent_frame->eip;
+        child_frame->cs = parent_frame->cs ? parent_frame->cs : child->kernel_cs;
+        child_frame->eflags = (parent_frame->eflags | 0x202UL) & ~0x4000UL;
+        child_frame->esp = child_copy;
     }
 
     child->esp = child_frame;
     memcpy(&child->context, child_frame, sizeof(context_t));
 
-    child->stack_top = (uint32_t *)((unsigned long)child_frame + sizeof(context_t));
+    if (parent_rpl == 3 || resume_in_task_stack)
+        child->stack_top = (uint32_t *)(parent_resume_esp + stack_offset);
+    else
+        child->stack_top = (uint32_t *)((unsigned long)child_frame + sizeof(context_t));
     child->stack_size = sizeof(child->stack);
     parent_frame->eax = _pid;
 
@@ -15377,4 +15512,3 @@ int main(void)
 	
 	return 0;
 }
-

@@ -814,7 +814,7 @@ typedef struct task
     void *tls_area;
     unsigned long tls_size;
     uint32_t stack[STACK_SIZE];
-} task_t;
+} __attribute__((aligned(16))) task_t;
 
 typedef struct 
 {
