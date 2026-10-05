@@ -553,7 +553,7 @@ void setpagetables(void)
 		}
 		for(j=16;j<160;j++)
 		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE;                 // KERNEL-RAM      PAGE_SIZE0-0x9FFFF
+			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER; /* KERNEL-RAM 0x10000-0x9FFFF */
 			k++;
 		}
 		for(j=160;j<192;j++)
@@ -584,7 +584,7 @@ void setpagetables(void)
 	{
 		for(j=0;j<80;j++)
 		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // SYS_VARS        0x800000-0x84FFFF
+			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER; /* SYS_VARS 0x800000-0x84FFFF */
 			k++;
 		}
 		for(j=80;j<1024;j++)
@@ -605,7 +605,7 @@ void setpagetables(void)
 	{
 		for(j=0;j<8;j++)
 		{
-			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_USER;                      // KERNEL          0xC000000-0xC008000
+			page_table[i][j] = (k * PAGE_SIZE) | PAGE_PRESENT | PAGE_READWRITE | PAGE_USER; /* KERNEL 0xC000000-0xC008000 */
 			k++;
 		}
 		for(j=8;j<1024;j++)
@@ -792,6 +792,16 @@ void page_fault(registers_t *registers)
 		return;
 	}
 	__asm__ volatile ("mov %%cr2, %0" : "=r" (faulting_address));	
+	if (scheduler_initialized == 1) 
+	{
+		if (usermode == 1) 
+		{
+			if (current_thread != 0) 
+			{
+				printk("\n");
+			}
+		}
+	}
 	printk("Faulting address 0x%X\n", faulting_address);
 	printk("Exception at interrupt %d", registers->int_no);
 	if (registers->int_no < 32)
@@ -799,6 +809,19 @@ void page_fault(registers_t *registers)
 		printk(": %s", exception_messages[registers->int_no]);
 	}
 	putch('\n');
+	
+	if (scheduler_initialized == 1) 
+	{
+		if (usermode == 1) 
+		{
+			if (current_thread != 0) 
+			{
+				sys_exit(0);
+				return;
+			}
+		}		
+	}
+	
 	panic(exc);
 	halt();
     while(1);

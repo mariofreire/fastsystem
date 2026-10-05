@@ -1,3 +1,8 @@
+; Fast System Functions
+; Author: Mario Freire
+; Version 0.1
+; Copyright (C) 2024 DSP Interactive.
+
 [bits 32]
 
 section .text
@@ -56,6 +61,9 @@ extern reload_devices
 extern remap_irq
 extern timer_handler
 extern schedule
+extern task_prepare_usermode
+extern task_prepare_kernelmode
+extern print_switch_mode
 
 
 %define INT86_BASE_ADDRESS 0x7C00
@@ -135,6 +143,14 @@ task_start:
     iretd
     
 context_switch:
+    mov ax, cs
+    and ax, 3
+    cmp ax, 3
+    jne context_switch_flags
+    mov eax, esp
+    push ss
+    push eax
+context_switch_flags:
     pushfd
     or dword [esp], 0x200
     and dword [esp], 0xFFFFBFFF
@@ -276,6 +292,7 @@ switchtokernelmode:
 	mov gs, ax
 	mov ax, TLS_SELECTOR
 	mov fs, ax
+	call task_prepare_kernelmode
 	call kernelmode_init
 	ret
 
@@ -299,6 +316,7 @@ kernelmode_entry_gate:
 	mov byte [current_code_segment], al
 	mov ax, TLS_SELECTOR
 	mov fs, ax
+	call task_prepare_kernelmode
 	call kernelmode_init
 	popad
 	pop gs
@@ -337,6 +355,10 @@ switchtousermode:
 	cmp ax, 3
 	je switchtousermode_already
 	cli
+	mov ax, KERNEL_MODE_DATA_SEGMENT
+	mov ds, ax
+	mov es, ax
+	call task_prepare_usermode
 	mov ax, USER_MODE_CODE_SEGMENT
 	mov byte [current_code_segment], al
 	mov ax, USER_MODE_DATA_SEGMENT
@@ -351,7 +373,7 @@ switchtousermode:
 	add eax, 4
 	push eax
 	pushfd
-	or dword [esp], 0x3200
+	or dword [esp], 0x3202
 	and dword [esp], 0xFFFFBFFF
 	push dword USER_MODE_CODE_SEGMENT
 	push dword usermode_start
@@ -410,9 +432,15 @@ isr_stub:
 	pop ebx
 	mov ds, bx
 	mov es, bx
-	mov ax, TLS_SELECTOR
-	mov fs, ax
 	mov gs, bx
+	mov ax, TLS_SELECTOR
+	mov cx, [esp + 44]
+	and cx, 3
+	cmp cx, 3
+	jne isr_stub_fs
+	or ax, 3
+isr_stub_fs:
+	mov fs, ax
 	popa
 	add esp, 8
 	iretd
@@ -433,9 +461,15 @@ irq_stub:
 	pop ebx
 	mov ds, bx
 	mov es, bx
-	mov ax, TLS_SELECTOR
-	mov fs, ax
 	mov gs, bx
+	mov ax, TLS_SELECTOR
+	mov cx, [esp + 44]
+	and cx, 3
+	cmp cx, 3
+	jne irq_stub_fs
+	or ax, 3
+irq_stub_fs:
+	mov fs, ax
 	popa
 	add esp, 8
 	iretd

@@ -234,6 +234,9 @@
 
 #define WEXITSTATUS_NOT_FOUND     127
 
+#define WIFEXITED(status)   (((status) & 0x7F) == 0)
+#define WEXITSTATUS(status) (((status) >> 8) & 0xFF)
+
 #define EFAULT 14
 
 #define TASK_STACK_SIZE 2048
@@ -807,6 +810,7 @@ typedef struct task
     void *args;
     int joiner_id;
     int joined;    
+    int exec;
     int pid;
     void *module;
     void *start_brk;
@@ -1011,6 +1015,8 @@ extern unsigned long probememory(void);
 extern void switchtomultitask(void);
 extern void switchtousermode(void);
 extern void switchtokernelmode(void);
+void task_prepare_usermode(void);
+void task_prepare_kernelmode(void);
 
 extern void kernelmode_start(void);
 

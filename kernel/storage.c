@@ -355,7 +355,7 @@ unsigned char read_sector(unsigned long sector, unsigned char *buffer)
 	
 	if (storage_drive_controller != STORAGE_CONTROLLER_IDE) return storage_read(id,buffer,sector,1);
 
-	if ((offset < 65536) && (sector < max_dap_sector) && (usermode == 0))
+	if ((offset < 65536) && (sector < max_dap_sector))
 	{
 		result = sector_read(id, buffer, sector, 1);
 		if (result == 0)
@@ -422,7 +422,7 @@ unsigned char write_sector(unsigned long sector, const unsigned char *buffer)
 	
 	if (storage_drive_controller != STORAGE_CONTROLLER_IDE) return storage_write(id,buffer,sector,1);
 
-	if ((offset < 65536) && (sector < max_dap_sector) && (usermode == 0))
+	if ((offset < 65536) && (sector < max_dap_sector))
 	{
 		result = sector_write(id, buffer, sector, 1);
 		if (result == 0)
