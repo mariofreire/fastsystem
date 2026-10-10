@@ -41,7 +41,7 @@ QEMUFLAGS := -m 2048
 all: fskrnl gen-vars write-vars boot put testc.bin lspci.bin getargs.bin
 
 # Notice how dependencies are built as needed
-fskrnl.elf: kernel_start.o fskrnl.o memory.o string.o io.o pcidev.o storage.o ata.o ahci.o ehci.o nvme.o fat.o time.o functions.o arith64.o
+fskrnl.elf: kernel_start.o fskrnl.o memory.o string.o io.o pcidev.o storage.o ata.o ahci.o ehci.o nvme.o fat.o time.o vfs.o fatfs.o module.o functions.o arith64.o
 	ld $(LDFLAGS) -o $@ $^
 
 fskrnl: fskrnl.elf
@@ -86,6 +86,11 @@ write-vars:
 	./gen-vars enum-verbose vars
 	./gen-vars enum-serial vars
 	./gen-vars enum vars
+
+modules: mod/hello.o
+
+mod/hello.o: mod/hello.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -f fskrnl loader gen-vars
