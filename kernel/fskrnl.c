@@ -7,6 +7,9 @@
 #include "fskrnl.h"
 #include "string.h"
 #include "enum.h"
+#include "vfs.h"
+#include "module.h"
+#include "fatfs.h"
 
 unsigned char *root_sector = (unsigned char *)SYSTEM_ROOT_SECTOR;
 unsigned char *mbr_sector = (unsigned char *)SYSTEM_MBR_SECTOR;
@@ -8674,7 +8677,7 @@ void syscall_handler(registers_t *registers)
 			}
 			else
 			{
-				registers->eax = (unsigned long)sys_read_handler((int)arg1, (void *)arg2, (size_t)arg3);
+				registers->eax = (unsigned long)vfs_read((int)arg1, (void *)arg2, (size_t)arg3);
 			}
 		}
 		break;
@@ -8699,19 +8702,19 @@ void syscall_handler(registers_t *registers)
 			{
 				if (arg1 >= 3)
 				{
-					registers->eax = (unsigned long)sys_write_handler((int)arg1, (const void *)arg2, (size_t)arg3);
+					registers->eax = (unsigned long)vfs_write((int)arg1, (const void *)arg2, (size_t)arg3);
 				}
 			}
 		}
 		break;
         case 5:
         {
-            registers->eax = (unsigned long)sys_open_handler((const char *)arg1, (int)arg2);
+            registers->eax = (unsigned long)vfs_open((const char *)arg1, (int)arg2);
         }
 		break;
         case 6:
         {
-            registers->eax = (unsigned long)sys_close_handler((int)arg1);
+            registers->eax = (unsigned long)vfs_close((int)arg1);
         }
 		break;
 		case 7:
@@ -8721,7 +8724,7 @@ void syscall_handler(registers_t *registers)
 		break;
         case 10:
         {
-            registers->eax = sys_unlink_handler((const char *)arg1);
+            registers->eax = vfs_unlink((const char *)arg1);
         }
 		break;
 		case 11:
@@ -8746,17 +8749,17 @@ void syscall_handler(registers_t *registers)
 		break;
         case 12:
         {
-            registers->eax = sys_chdir_handler((const char *)arg1);
+            registers->eax = vfs_chdir((const char *)arg1);
         }
 		break;
         case 15:
         {
-            registers->eax = sys_chmod_handler((const char *)arg1, (unsigned char)arg2);
+            registers->eax = vfs_chmod((const char *)arg1, (unsigned char)arg2);
         }
 		break;
         case 19:
         {
-            registers->eax = (unsigned long)sys_lseek_handler((int)arg1, (off_t)arg2, (int)arg3);
+            registers->eax = (unsigned long)vfs_lseek((int)arg1, (off_t)arg2, (int)arg3);
         }
 		break;
 		case 29:
@@ -8764,19 +8767,29 @@ void syscall_handler(registers_t *registers)
 			presskey();
 		}
 		break;
+        case 21:
+        {
+            registers->eax = (unsigned long)vfs_mount((const char *)arg1, (const char *)arg2, (const char *)arg3, (unsigned long)arg4);
+        }
+		break;
+        case 22:
+        {
+            registers->eax = (unsigned long)vfs_umount((const char *)arg1);
+        }
+		break;
         case 38:
         {
-            registers->eax = sys_rename_handler((const char *)arg1, (const char *)arg2);
+            registers->eax = vfs_rename((const char *)arg1, (const char *)arg2);
         }
 		break;
         case 39:
         {
-            registers->eax = sys_mkdir_handler((const char *)arg1);
+            registers->eax = vfs_mkdir((const char *)arg1);
         }
 		break;
         case 40:
         {
-            registers->eax = sys_rmdir_handler((const char *)arg1);
+            registers->eax = vfs_rmdir((const char *)arg1);
         }
 		break;
 		case 45:
@@ -8814,7 +8827,7 @@ void syscall_handler(registers_t *registers)
 		break;
         case 99:
         {
-            registers->eax = sys_statfs_handler((const char *)arg1, (fat_statfs_t *)arg2);
+            registers->eax = vfs_statfs((const char *)arg1, (void *)arg2);
         }
 		break;
 		case 102:
@@ -8829,12 +8842,12 @@ void syscall_handler(registers_t *registers)
 		break;
         case 106:
         {
-            registers->eax = sys_stat_handler((const char *)arg1, (struct stat *)arg2);
+            registers->eax = vfs_stat((const char *)arg1, (struct stat *)arg2);
         }
 		break;
         case 107:
         {
-            registers->eax = sys_lstat_handler((const char *)arg1, (struct stat *)arg2);
+            registers->eax = vfs_lstat((const char *)arg1, (struct stat *)arg2);
         }
 		break;
 		case 120:
@@ -8842,9 +8855,19 @@ void syscall_handler(registers_t *registers)
 			//sys_clone
 		}
 		break;
+        case 128:
+        {
+            registers->eax = (unsigned long)module_load((const char *)arg1);
+        }
+		break;
+        case 129:
+        {
+            registers->eax = (unsigned long)module_unload((const char *)arg1);
+        }
+		break;
         case 141:
         {
-            registers->eax = (unsigned long)sys_getdents_handler((int)arg1, (struct sys_dirent *)arg2, (unsigned int)arg3);
+            registers->eax = (unsigned long)vfs_getdents((int)arg1, (void *)arg2, (unsigned int)arg3);
         }
 		break;
 		case 162:
@@ -8855,7 +8878,7 @@ void syscall_handler(registers_t *registers)
 		break;
         case 183:
         {
-            registers->eax = (unsigned long)sys_getcwd_handler((char *)arg1, (size_t)arg2);
+            registers->eax = (unsigned long)vfs_getcwd((char *)arg1, (size_t)arg2);
         }
 		break;		
 		case 224:
@@ -8870,17 +8893,17 @@ void syscall_handler(registers_t *registers)
 		break;
         case 226:
 		{
-            registers->eax = sys_setxattr_handler((const char *)arg1, (const char *)arg2, (const void *)arg3, (size_t)arg4, (int)arg5);
+            registers->eax = vfs_setxattr((const char *)arg1, (const char *)arg2, (const void *)arg3, (size_t)arg4, (int)arg5);
 		}
 		break;
         case 229:
 		{
-            registers->eax = sys_getxattr_handler((const char *)arg1, (const char *)arg2, (void *)arg3, (size_t)arg4);
+            registers->eax = vfs_getxattr((const char *)arg1, (const char *)arg2, (void *)arg3, (size_t)arg4);
 		}
 		break;
         case 235:
 		{
-            registers->eax = sys_removexattr_handler((const char *)arg1, (const char *)arg2);
+            registers->eax = vfs_removexattr((const char *)arg1, (const char *)arg2);
 		}
 		break;
 		case 238:
@@ -11953,6 +11976,7 @@ int fschdir(const char *path)
 		{
     		strcpy(pwd, cwd);
 			current_sector_pwd = fat_current_directory_sector;
+			vfs_set_cwd(cwd);
 		}
 	}
 	return result;
@@ -14028,6 +14052,19 @@ int main(void)
 				setcurrentdirsector("/");
 				if ((enum_loaded) && (total_enum > 0) && (has_enum(SYSTEM_STDIO_SERIAL))) printk("\n");
 				printk("filesystem device loaded.\n");
+				vfs_init();
+				if (fatfs_register() == 0)
+				{
+					if (vfs_mount("fat", "/", "hd0", 0) == 0)
+						printk("vfs: fat mounted on /.\n");
+					else
+						printk("vfs: fat mount failed.\n");
+				}
+				else
+				{
+					printk("vfs: fat register failed.\n");
+				}
+				module_loader_init();
 			} else
 			{
 				panic((unsigned long)boot_sector);
@@ -16206,6 +16243,93 @@ int main(void)
 						mm_opts |= PRINT_MEMORY_MAP_LIST_DETAIL;
 					}
 					printmemorymap(mm_opts);
+				}
+				else
+				if (strcmp(argv[0], "mount") == 0)
+				{
+					if (argc < 2)
+					{
+						int mi;
+						int shown = 0;
+						for (mi = 0; mi < VFS_MAX_MOUNTS; mi++)
+						{
+							vfs_mount_t *mnt = vfs_mount_slot(mi);
+							if (mnt == NULL || !mnt->used)
+								continue;
+							printk("%s on %s type %s\n", mnt->source, mnt->path, mnt->fstype);
+							shown++;
+						}
+						if (!shown)
+							printk("no filesystems mounted\n");
+					}
+					else if (argc < 4)
+					{
+						printk("usage: mount fstype target source\n");
+					}
+					else
+					{
+						int rc = vfs_mount(argv[1], argv[2], argv[3], 0);
+						if (rc != 0)
+							printk("mount: error %d\n", rc);
+					}
+				}
+				else
+				if (strcmp(argv[0], "umount") == 0)
+				{
+					if (argc < 2)
+					{
+						printk("usage: umount target\n");
+					}
+					else
+					{
+						int rc = vfs_umount(argv[1]);
+						if (rc != 0)
+							printk("umount: error %d\n", rc);
+					}
+				}
+				else
+				if (strcmp(argv[0], "insmod") == 0)
+				{
+					if (argc < 2)
+					{
+						printk("usage: insmod module.o\n");
+					}
+					else
+					{
+						int rc = module_load(argv[1]);
+						if (rc != 0)
+							printk("insmod: error %d\n", rc);
+					}
+				}
+				else
+				if (strcmp(argv[0], "rmmod") == 0)
+				{
+					if (argc < 2)
+					{
+						printk("usage: rmmod name\n");
+					}
+					else
+					{
+						int rc = module_unload(argv[1]);
+						if (rc != 0)
+							printk("rmmod: error %d\n", rc);
+					}
+				}
+				else
+				if (strcmp(argv[0], "lsmod") == 0)
+				{
+					int mi;
+					int shown = 0;
+					for (mi = 0; mi < MODULE_MAX; mi++)
+					{
+						kernel_module_t *mod = module_get(mi);
+						if (mod == NULL || !mod->used)
+							continue;
+						printk("%s %s\n", mod->name, mod->path);
+						shown++;
+					}
+					if (!shown)
+						printk("no modules loaded\n");
 				}
 				else
 				{
